@@ -17,8 +17,8 @@ deploy/     Velociraptor server/client config 範本、GPO 推送流程文件
 
 | Phase | 內容 | 狀態 |
 |---|---|---|
-| 0 | repo 骨架 + 開發環境 | 進行中 |
-| 1 | Velociraptor 部署 + 資產/軟體清單上線 | 未開始 |
+| 0 | repo 骨架 + 開發環境 | 完成 |
+| 1 | Velociraptor 部署 + 資產/軟體清單上線 | 進行中(部署文件/DB schema/同步 job 骨架已完成,待實機驗證) |
 | 2 | Sysmon + PostgreSQL pipeline + Defender 事件整合 | 未開始 |
 | 3 | 排程 SQL 規則 + alerts 表 | 未開始 |
 | 4 | Dashboard | 未開始 |
@@ -31,8 +31,10 @@ deploy/     Velociraptor server/client config 範本、GPO 推送流程文件
 
 - Python 3.12+ 與 [uv](https://docs.astral.sh/uv/)
 - Node.js 20+
-- Docker(本機起 PostgreSQL + TimescaleDB;若本機尚未安裝 Docker,需另外安裝或改用
-  現有的 PostgreSQL 16+ 執行個體並自行啟用 `timescaledb` extension)
+- Docker(本機起 PostgreSQL + TimescaleDB + Velociraptor Server;若本機尚未安裝
+  Docker,需另外安裝或改用現有的 PostgreSQL 16+ 執行個體並自行啟用
+  `timescaledb` extension)。實際部署位置是 Synology NAS(Container Manager),
+  見 `deploy/velociraptor/README.md`
 
 ### 啟動資料庫
 
@@ -48,6 +50,14 @@ cd backend
 uv sync
 uv run uvicorn app.main:app --reload
 # health check: http://localhost:8000/health
+```
+
+### 套用 DB migration / 手動跑一次資產同步 job
+
+```bash
+cd backend
+uv run alembic upgrade head
+uv run python -m app.jobs.sync_assets   # 需要 deploy/velociraptor/etc/api_client.yaml 存在
 ```
 
 ### 啟動 frontend

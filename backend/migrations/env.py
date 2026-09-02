@@ -18,11 +18,9 @@ if config.config_file_name is not None:
 # alembic.ini 內的 sqlalchemy.url 只是佔位。
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-# 各 Phase 陸續在 app/models/ 加 SQLAlchemy model 後,於此掛上 Base.metadata
-# 以啟用 `alembic revision --autogenerate`。
-# from app.models.base import Base
-# target_metadata = Base.metadata
-target_metadata = None
+from app.models import Base  # noqa: E402
+
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

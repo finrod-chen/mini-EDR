@@ -10,6 +10,7 @@ dependencies = [
     "httpx>=0.28.1",
     "psycopg[binary]>=3.3.5",
     "pydantic-settings>=2.15.0",
+    "pyvelociraptor>=0.1.14",
     "sqlalchemy>=2.0.52",
     "uvicorn[standard]>=0.52.4",
 ]
@@ -28,9 +29,29 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# alembic 產生的 migration 樣板不照我們的 style 規則調整,每次新增 migration
+# 都要手動改版型太麻煩,直接排除。
+"migrations/versions/*" = ["E", "F", "I", "UP", "B"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+# alembic migration 樣板欄位型別(Union[str, Sequence[str], None] 等)不追求嚴格檢查。
+module = "migrations.versions.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# pyvelociraptor 沒有型別標註/py.typed。
+module = "pyvelociraptor.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# apscheduler 沒有型別標註/py.typed。
+module = "apscheduler.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

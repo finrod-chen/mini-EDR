@@ -8,9 +8,15 @@ __pycache__/
 
 # Env
 .env
+deploy/velociraptor/.env
 
-# Velociraptor 實際憑證/設定(範本除外,見 deploy/velociraptor/README.md)
-deploy/velociraptor/*.config.yaml
+# Velociraptor 實際憑證/設定/資料(範本除外,見 deploy/velociraptor/README.md)
+# etc/ 內是 docker compose 首次啟動自動產生的 server.config.yaml(含私鑰/憑證),
+# datastore/ 是端點資料與 datastore,兩者都不應進版控。
+deploy/velociraptor/etc/
+deploy/velociraptor/datastore/
+deploy/velociraptor/*.yaml
+!deploy/velociraptor/*.example.yaml
 
 # OS
 .DS_Store

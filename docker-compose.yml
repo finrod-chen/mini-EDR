@@ -16,5 +16,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # 官方 compose 定義(https://github.com/Velocidex/velociraptor/tree/master/Docker),
+  # 依 deploy/velociraptor/README.md 的步驟部署與首次啟動設定。
+  velociraptor-server:
+    image: ghcr.io/velocidex/velociraptor-server:latest
+    restart: unless-stopped
+    # 注意:docker compose 只會從「跟 docker-compose.yml 同層」的 .env 讀取
+    # ${VAR} 變數代換,env_file 指到的檔案只會注入到 container 內部環境變數,
+    # 不會拿來代換下面 ports 的埠號。所以 ports 這裡刻意寫死數字,
+    # 若要改埠號,除了改 deploy/velociraptor/.env 也要一併改這裡。
+    env_file:
+      - ./deploy/velociraptor/.env
+    ports:
+      # Client(端點)連線埠與 GUI,需開放給內網 100 台端點與管理者存取,
+      # 需與 deploy/velociraptor/.env 的 VELOCIRAPTOR_FRONTEND_PORT /
+      # VELOCIRAPTOR_GUI_PORT 一致。
+      - "8000:8000"
+      - "8889:8889"
+      # API(gRPC,預設 8001)刻意不對外發布,只給同一個 docker-compose
+      # network 內的 backend 服務用(見 deploy/velociraptor/README.md 的
+      # bind_address 調整說明)。
+    volumes:
+      - ./deploy/velociraptor/etc/:/etc/velociraptor/
+      - ./deploy/velociraptor/datastore/:/datastore/
+
 volumes:
   db_data:

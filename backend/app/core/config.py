@@ -16,9 +16,14 @@ class Settings(BaseSettings):
     # Google SSO(Dashboard 登入用,見 app/core/auth.py)
     google_client_id: str = ""
     google_client_secret: str = ""
-    # 只允許這個 Google Workspace 網域的帳號登入(空字串 = 不限制,本機開發方便用,
-    # 正式環境務必填,否則任何 Google 帳號都能登入)。
-    google_hosted_domain: str = ""
+    # 只允許這個 Google Workspace 網域的帳號登入(空字串 = 不限制)。預設值
+    # 就是實際會用的網域,本機開發若要暫時放寬測試其他帳號,自己在 .env
+    # 覆寫成空字串,不要改這裡的預設值。
+    google_hosted_domain: str = "xiyuebiomed.com.tw"
+    # 這些 email(逗號分隔)第一次登入時一定是 admin,且如果已存在但角色
+    # 不是 admin 會被升級(只會升級,不會反向降級別人)。見
+    # app/services/users.py 的 get_or_create_user。
+    seed_admin_emails: str = "finrodchen@xiyuebiomed.com.tw"
     # Starlette SessionMiddleware 簽章用的密鑰,正式環境務必換成隨機字串並妥善保管
     # (改變這個值會讓所有人的登入 session 失效,相當於強制全體登出)。
     session_secret_key: str = "dev-only-change-me"

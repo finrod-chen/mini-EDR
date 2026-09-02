@@ -85,9 +85,14 @@ npm run dev
 用戶端(Web application),Authorized redirect URI 填
 `http://localhost:8000/auth/callback`,把 client id/secret 填進
 backend 的 `.env`(見 `.env.example` 的 `GOOGLE_CLIENT_ID` /
-`GOOGLE_CLIENT_SECRET` 說明)。第一個登入的帳號自動變 admin(見
-`app/services/users.py`),之後的人預設 viewer,要晉升 admin 目前只能
-直接改 DB(`users` 表)。
+`GOOGLE_CLIENT_SECRET` 說明)。
+
+登入限制只開放 `xiyuebiomed.com.tw` 網域(`GOOGLE_HOSTED_DOMAIN`,已是
+預設值),`finrodchen@xiyuebiomed.com.tw` 一律是 admin
+(`SEED_ADMIN_EMAILS`,即使不是第一個登入的人;已存在但角色不是 admin
+會在下次登入時自動升級)。除了 seed 名單外,其餘第一個登入的帳號當
+bootstrap admin,之後的人預設 viewer,要晉升 admin 目前只能直接改 DB
+(`users` 表)。細節見 `app/services/users.py`。
 
 ### AI Alert Explain(選配)
 

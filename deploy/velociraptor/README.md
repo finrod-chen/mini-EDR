@@ -146,14 +146,68 @@ network 內的其他服務(如 backend)無法直接連。需要編輯
 埠 8001 本來就沒有在 docker-compose 的 `ports:` 裡對外發布),改完
 `docker compose restart velociraptor-server` 生效。
 
-backend 端連線設定見 `app/core/config.py` 的
-`velociraptor_api_url` / `velociraptor_api_token`——但走的是官方
-`pyvelociraptor` 套件讀 `api_client.yaml` 的方式,不是單純 URL + token,
-實際用法見 `app/services/velociraptor_client.py`。
+backend 端連線設定見 `app/core/config.py` 的 `velociraptor_api_config_path`
+(api_client.yaml 的路徑)——認證是官方 `pyvelociraptor` 套件的 mutual TLS
+方式,不是單純 URL + token,實際用法見 `app/services/velociraptor_client.py`。
 
 ---
 
-## 7. 備份策略
+## 7. 部署 Sysmon(透過 Velociraptor,不另開 GPO)
+
+Velociraptor 內建 `Windows.Sysinternals.SysmonInstall` artifact,可以直接把
+Sysmon 部署到端點,不需要像 Phase 1 的 Velociraptor Agent 本身那樣另外走一條
+GPO 通道——這是選用 Velociraptor 的好處之一,設定/安裝都能統一走同一個管理面。
+
+參考:<https://docs.velociraptor.app/artifact_references/pages/windows.sysinternals.sysmoninstall/>
+
+### 運作方式
+
+這個 artifact 預設會:
+- 從 `https://live.sysinternals.com/tools/sysmon64.exe` 下載 Sysmon 執行檔
+- 從 SwiftOnSecurity 的 GitHub repo 下載一份社群維護的預設 config
+  (`sysmonconfig-export.xml`)
+- 在端點執行 `sysmon64.exe -accepteula -i <config>`,確保 Sysmon64 服務啟動
+
+**注意**:上面兩個工具是 **Velociraptor Server**(這台 NAS)去下載並快取
+(`serve_locally: true`),下載到端點才是走內網。也就是說 NAS 需要「至少
+一次性」對外連到 `live.sysinternals.com` 與 `raw.githubusercontent.com`
+才抓得到——若 NAS 完全沒有對外網路,需改成手動下載這兩個檔案後在 GUI 裡
+上傳覆蓋預設的工具來源(Server Artifacts → 工具管理),或直接把
+config XML 換成你們自己審查過的版本(見下方)。
+
+### 建議先審查/自訂 config
+
+SwiftOnSecurity 的預設 config 是業界常用的起點,但正式上線前建議先看過
+內容(規則量頗大,會直接影響 process_events/network_events 的資料量與
+Phase 3 規則能撈到什麼)。若要換成自訂版本:GUI → Server Artifacts →
+找到 `Windows.Sysinternals.SysmonInstall` → 編輯 → 把 `SysmonConfig` 這個
+tool 的來源 URL 換成你們自己的 config 檔案位置,或直接上傳。
+
+### 用 Hunt 部署到所有端點
+
+1. GUI 左側選單 → **Hunt Manager** → New Hunt
+2. 搜尋並選擇 `Windows.Sysinternals.SysmonInstall`
+3. 先用 label / OU 篩選只打 Pilot 機器測試,確認沒問題後再擴大到全部端點
+4. Launch,等 hunt 完成
+
+### 驗證
+
+```text
+□ 抽測的端點「服務」清單出現 "Sysmon64"
+□ 事件檢視器能看到 Microsoft-Windows-Sysmon/Operational 這個 channel,且有資料
+□ 在 Velociraptor GUI 對該端點跑 Generic.Client.Info 或直接查
+  Windows.EventLogs.EvtxHunter(ChannelRegex: Microsoft-Windows-Sysmon/Operational)
+  能撈到 Process Create(EventID 1)之類的事件
+```
+
+Sysmon 事件之後由 backend 的排程 job(`app/jobs/sync_sysmon_events.py`,
+Phase 2)透過同一支 `Windows.EventLogs.EvtxHunter` artifact 定期拉取,寫入
+`process_events` / `network_events` 表,不是即時串流(對應規格「不做即時
+streaming pipeline」的設計原則)。
+
+---
+
+## 8. 備份策略
 
 `deploy/velociraptor/datastore/` 是 Velociraptor 的資料本體(端點資料、
 collection 結果、hunt 紀錄),`deploy/velociraptor/etc/` 是伺服器設定與憑證。

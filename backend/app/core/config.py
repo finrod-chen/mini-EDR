@@ -24,5 +24,14 @@ class Settings(BaseSettings):
     session_secret_key: str = "dev-only-change-me"
     frontend_origin: str = "http://localhost:5173"
 
+    # AI Alert Explain(Phase 6,選配,見 app/services/ai_explain.py)。
+    # 走 OpenAI-compatible 的 /chat/completions REST 介面,不綁定特定供應商
+    # ——只要目標端點相容這個介面規格(OpenAI 本身、Azure OpenAI、內部自架的
+    # 相容端點都算)就能用。三個值留空 = 停用,呼叫時會回錯誤而不是嘗試
+    # 送出未設定的請求。
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
+
 
 settings = Settings()

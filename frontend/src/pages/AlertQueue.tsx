@@ -28,6 +28,8 @@ export function AlertQueue() {
   const [error, setError] = useState<string | null>(null)
   const [actionPending, setActionPending] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<Record<string, string>>({})
+  const [explainPending, setExplainPending] = useState<string | null>(null)
+  const [explainError, setExplainError] = useState<Record<string, string>>({})
 
   const loadAlerts = useCallback(() => {
     setLoading(true)
@@ -76,6 +78,20 @@ export function AlertQueue() {
       setActionMessage((prev) => ({ ...prev, [alert.alert_id]: message }))
     } finally {
       setActionPending(null)
+    }
+  }
+
+  const explainAlert = async (alert: Alert) => {
+    setExplainPending(alert.alert_id)
+    setExplainError((prev) => ({ ...prev, [alert.alert_id]: '' }))
+    try {
+      const updated = await apiPost<Alert>(`/api/alerts/${alert.alert_id}/explain`)
+      setAlerts((prev) => prev.map((a) => (a.alert_id === updated.alert_id ? updated : a)))
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'AI 說明產生失敗'
+      setExplainError((prev) => ({ ...prev, [alert.alert_id]: message }))
+    } finally {
+      setExplainPending(null)
     }
   }
 
@@ -157,8 +173,19 @@ export function AlertQueue() {
                   <tr>
                     <td colSpan={6} style={{ background: '#fafafa', padding: 16 }}>
                       <p>
-                        <strong>AI 說明:</strong> {alert.ai_explanation ?? '尚未產生(Phase 6 選配功能)'}
+                        <strong>AI 說明:</strong> {alert.ai_explanation ?? '尚未產生'}
                       </p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <button
+                          disabled={explainPending === alert.alert_id}
+                          onClick={() => void explainAlert(alert)}
+                        >
+                          {alert.ai_explanation ? '重新產生 AI 說明' : '產生 AI 說明'}
+                        </button>
+                        {explainError[alert.alert_id] && (
+                          <span style={{ color: '#b91c1c' }}>{explainError[alert.alert_id]}</span>
+                        )}
+                      </div>
                       <p style={{ color: '#888' }}>
                         進程鏈需要額外一支關聯查詢 API(依主機+時間比對
                         process_events),目前告警 API 還沒提供,先不顯示假資料。

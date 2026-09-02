@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -14,7 +15,7 @@ from app.core.auth import UserSession, get_current_user, require_admin
 from app.core.db import get_db
 from app.models.alert import Alert
 from app.models.response_action import ResponseAction
-from app.services import velociraptor_remediation
+from app.services import ai_explain, velociraptor_remediation
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -111,3 +112,32 @@ def perform_action(
     db.commit()
     db.refresh(action)
     return to_response_action_out(action)
+
+
+@router.post("/{alert_id}/explain", response_model=AlertOut)
+def explain_alert(
+    alert_id: uuid.UUID,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    _user: UserSession = Depends(get_current_user),
+) -> Alert:
+    """產生/重新產生 AI 說明(選配,Phase 6)。admin/viewer 都能觸發——這只是
+    輔助說明,不是規劃決策裡「誰能執行高風險動作」的 RBAC 範圍。
+    """
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
+
+    if alert.ai_explanation and not force:
+        return alert
+
+    try:
+        alert.ai_explanation = ai_explain.explain_alert(db, alert)
+    except ai_explain.LlmNotConfiguredError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"LLM API 呼叫失敗:{exc}") from exc
+
+    db.commit()
+    db.refresh(alert)
+    return alert

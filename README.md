@@ -23,7 +23,7 @@ deploy/     Velociraptor server/client config 範本、GPO 推送流程文件
 | 3 | 排程 SQL 規則 + alerts 表 | 進行中(alerts 表、規則引擎、18 條規則、排程已完成,待實機資料驗證誤報率) |
 | 4 | Dashboard | 進行中(Google SSO 登入、兩層 RBAC、三個頁面、唯讀 API 已完成,應變動作按鈕已於 Phase 5 接上真實 API,待實機驗證) |
 | 5 | 應變動作串接 Velociraptor API + RBAC | 進行中(隔離主機/砍進程/標記誤判/忽略四個動作 API + Dashboard 按鈕已完成,待實機驗證,砍進程需先在 Velociraptor 匯入 exchange artifact 見 deploy/velociraptor/README.md 第 8 節) |
-| 6 | (選配)AI Alert Explain | 未開始 |
+| 6 | (選配)AI Alert Explain | 進行中(OpenAI-compatible LLM API + 基本遮罩 + Dashboard 按鈕已完成,待接真實 LLM 端點驗證) |
 
 ## 本機開發
 
@@ -88,6 +88,14 @@ backend 的 `.env`(見 `.env.example` 的 `GOOGLE_CLIENT_ID` /
 `GOOGLE_CLIENT_SECRET` 說明)。第一個登入的帳號自動變 admin(見
 `app/services/users.py`),之後的人預設 viewer,要晉升 admin 目前只能
 直接改 DB(`users` 表)。
+
+### AI Alert Explain(選配)
+
+在 backend 的 `.env` 填 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`(見
+`.env.example`)。走 OpenAI-compatible 的 `/chat/completions` 介面,不綁定
+特定供應商。三個值留空就是停用,Dashboard 按「產生 AI 說明」會回
+503。送出去的告警上下文會先做基本遮罩(hostname/user 只送前 4 個字元,
+`command_line` 保留完整內容),細節見 `app/services/ai_explain.py`。
 
 ### 測試 / lint
 

@@ -1,0 +1,17 @@
+# Python (backend)
+backend/.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Env
+.env
+
+# Velociraptor 實際憑證/設定(範本除外,見 deploy/velociraptor/README.md)
+deploy/velociraptor/*.config.yaml
+
+# OS
+.DS_Store
+Thumbs.db

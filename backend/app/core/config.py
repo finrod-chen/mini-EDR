@@ -13,5 +13,16 @@ class Settings(BaseSettings):
     # 第 6 節與 app/services/velociraptor_client.py。
     velociraptor_api_config_path: str = "../deploy/velociraptor/etc/api_client.yaml"
 
+    # Google SSO(Dashboard 登入用,見 app/core/auth.py)
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # 只允許這個 Google Workspace 網域的帳號登入(空字串 = 不限制,本機開發方便用,
+    # 正式環境務必填,否則任何 Google 帳號都能登入)。
+    google_hosted_domain: str = ""
+    # Starlette SessionMiddleware 簽章用的密鑰,正式環境務必換成隨機字串並妥善保管
+    # (改變這個值會讓所有人的登入 session 失效,相當於強制全體登出)。
+    session_secret_key: str = "dev-only-change-me"
+    frontend_origin: str = "http://localhost:5173"
+
 
 settings = Settings()

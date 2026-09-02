@@ -6,8 +6,10 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.19.1",
     "apscheduler>=3.11.3",
+    "authlib>=1.8.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    "itsdangerous>=2.2.0",
     "psycopg[binary]>=3.3.5",
     "pydantic-settings>=2.15.0",
     "pyvelociraptor>=0.1.14",
@@ -34,6 +36,11 @@ select = ["E", "F", "I", "UP", "B"]
 # 都要手動改版型太麻煩,直接排除。
 "migrations/versions/*" = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 的 Depends()/Query() 慣例就是要寫在參數預設值裡,B008 對這個模式
+# 是誤判。
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Security"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -51,6 +58,11 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # apscheduler 沒有型別標註/py.typed。
 module = "apscheduler.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# authlib 沒有型別標註/py.typed。
+module = "authlib.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

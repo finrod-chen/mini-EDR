@@ -21,7 +21,7 @@ deploy/     Velociraptor server/client config 範本、GPO 推送流程文件
 | 1 | Velociraptor 部署 + 資產/軟體清單上線 | 進行中(部署文件/DB schema/同步 job 骨架已完成,待實機驗證) |
 | 2 | Sysmon + PostgreSQL pipeline + Defender 事件整合 | 進行中(Sysmon 部署文件、hypertable schema、事件同步 job 骨架已完成,待實機驗證) |
 | 3 | 排程 SQL 規則 + alerts 表 | 進行中(alerts 表、規則引擎、18 條規則、排程已完成,待實機資料驗證誤報率) |
-| 4 | Dashboard | 未開始 |
+| 4 | Dashboard | 進行中(Google SSO 登入、兩層 RBAC、三個頁面、唯讀 API 已完成,應變動作按鈕先 UI-only,待實機驗證) |
 | 5 | 應變動作串接 Velociraptor API + RBAC | 未開始 |
 | 6 | (選配)AI Alert Explain | 未開始 |
 
@@ -73,9 +73,21 @@ lifespan)自動開始跑,不用手動呼叫。
 
 ```bash
 cd frontend
+cp .env.example .env
 npm install
 npm run dev
+# http://localhost:5173
 ```
+
+### Dashboard 登入(Google SSO)
+
+需要先在 <https://console.cloud.google.com/apis/credentials> 建立 OAuth 2.0
+用戶端(Web application),Authorized redirect URI 填
+`http://localhost:8000/auth/callback`,把 client id/secret 填進
+backend 的 `.env`(見 `.env.example` 的 `GOOGLE_CLIENT_ID` /
+`GOOGLE_CLIENT_SECRET` 說明)。第一個登入的帳號自動變 admin(見
+`app/services/users.py`),之後的人預設 viewer,要晉升 admin 目前只能
+直接改 DB(`users` 表)。
 
 ### 測試 / lint
 

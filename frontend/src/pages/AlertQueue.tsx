@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
-import { apiGet } from '../lib/api'
+import { ApiError, apiGet, apiPost } from '../lib/api'
 import { SEVERITY_COLOR, SEVERITY_ORDER, severityRank } from '../lib/severity'
-import type { Alert, Severity } from '../lib/types'
+import type { ActionType, Alert, ResponseAction, Severity } from '../lib/types'
 
 const STATUS_LABEL: Record<string, string> = {
   open: '未處理',
@@ -11,10 +11,12 @@ const STATUS_LABEL: Record<string, string> = {
   false_positive: '誤判',
 }
 
-// Phase 4 只做唯讀 Dashboard,隔離主機/砍進程這類高風險動作要呼叫
-// Velociraptor API,實作留到 Phase 5(見規劃文件)。這裡先讓 admin 看得到
-// 按鈕(確認 RBAC 沒藏錯人),但先不能按,避免看起來像能動但其實沒接後端。
-const ACTION_LABELS = ['隔離主機', '砍進程', '標記誤判', '忽略']
+const ACTION_BUTTONS: { type: ActionType; label: string }[] = [
+  { type: 'quarantine', label: '隔離主機' },
+  { type: 'kill_process', label: '砍進程' },
+  { type: 'mark_false_positive', label: '標記誤判' },
+  { type: 'ignore', label: '忽略' },
+]
 
 export function AlertQueue() {
   const { user } = useAuth()
@@ -24,32 +26,58 @@ export function AlertQueue() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionPending, setActionPending] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<Record<string, string>>({})
 
-  useEffect(() => {
-    let cancelled = false
+  const loadAlerts = useCallback(() => {
     setLoading(true)
-    apiGet<Alert[]>('/api/alerts', {
+    return apiGet<Alert[]>('/api/alerts', {
       severity: severityFilter === 'all' ? undefined : severityFilter,
       status: statusFilter === 'all' ? undefined : statusFilter,
     })
-      .then((data) => {
-        if (!cancelled) setAlerts(data)
-      })
-      .catch(() => {
-        if (!cancelled) setError('告警清單載入失敗')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+      .then((data) => setAlerts(data))
+      .catch(() => setError('告警清單載入失敗'))
+      .finally(() => setLoading(false))
   }, [severityFilter, statusFilter])
+
+  useEffect(() => {
+    void loadAlerts()
+  }, [loadAlerts])
 
   const sortedAlerts = useMemo(
     () => [...alerts].sort((a, b) => severityRank(a.severity) - severityRank(b.severity)),
     [alerts],
   )
+
+  const performAction = async (alert: Alert, actionType: ActionType) => {
+    let pid: number | undefined
+    if (actionType === 'kill_process') {
+      const input = window.prompt('要砍掉的進程 PID(告警本身沒有記錄觸發的 PID,需要人工確認後手動輸入):')
+      if (!input) return
+      pid = Number(input)
+      if (!Number.isInteger(pid) || pid <= 0) {
+        setActionMessage((prev) => ({ ...prev, [alert.alert_id]: 'PID 必須是正整數' }))
+        return
+      }
+    }
+
+    setActionPending(alert.alert_id)
+    setActionMessage((prev) => ({ ...prev, [alert.alert_id]: '' }))
+    try {
+      const action = await apiPost<ResponseAction>(`/api/alerts/${alert.alert_id}/actions`, {
+        action_type: actionType,
+        pid,
+      })
+      const message = action.result?.startsWith('failed:') ? action.result : '執行成功'
+      setActionMessage((prev) => ({ ...prev, [alert.alert_id]: message }))
+      await loadAlerts()
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : '執行失敗'
+      setActionMessage((prev) => ({ ...prev, [alert.alert_id]: message }))
+    } finally {
+      setActionPending(null)
+    }
+  }
 
   if (loading) return <p>載入中…</p>
   if (error) return <p>{error}</p>
@@ -136,12 +164,21 @@ export function AlertQueue() {
                         process_events),目前告警 API 還沒提供,先不顯示假資料。
                       </p>
                       {user?.role === 'admin' && (
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          {ACTION_LABELS.map((label) => (
-                            <button key={label} disabled title="Phase 5 才會串接 Velociraptor API 真正執行">
-                              {label}
-                            </button>
-                          ))}
+                        <div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            {ACTION_BUTTONS.map(({ type, label }) => (
+                              <button
+                                key={type}
+                                disabled={actionPending === alert.alert_id}
+                                onClick={() => void performAction(alert, type)}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                          {actionMessage[alert.alert_id] && (
+                            <p style={{ marginTop: 8, color: '#888' }}>{actionMessage[alert.alert_id]}</p>
+                          )}
                         </div>
                       )}
                     </td>

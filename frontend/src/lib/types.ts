@@ -11,6 +11,8 @@ export interface Alert {
   created_at: string | null
 }
 
+export type ActionType = 'quarantine' | 'kill_process' | 'ignore' | 'mark_false_positive'
+
 export interface ResponseAction {
   action_id: string
   alert_id: string | null

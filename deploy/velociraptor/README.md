@@ -207,7 +207,41 @@ streaming pipeline」的設計原則)。
 
 ---
 
-## 8. 備份策略
+## 8. 應變動作(Phase 5:隔離主機 / 砍進程)
+
+Dashboard 告警詳情頁的「隔離主機」「砍進程」按鈕(見
+`app/api/alerts.py` 的 `POST /api/alerts/{id}/actions`,只有 admin 能按)
+呼叫的是這兩個 artifact:
+
+| 動作 | Artifact | 內建 / 需匯入 |
+|---|---|---|
+| 隔離主機 | `Windows.Remediation.Quarantine` | 內建,不用另外設定 |
+| 砍進程 | `Windows.Remediation.Process` | **Artifact Exchange 內容,要先匯入** |
+
+### 匯入 Windows.Remediation.Process
+
+1. GUI 左側選單 → **Artifact Exchange**(或搜尋框直接找 artifact 名稱,
+   Velociraptor 會提示「這個 artifact 需要從 Exchange 安裝」)
+2. 找到 `Windows.Remediation.Process`,匯入
+3. 匯入後可以在 GUI 的 Server Artifacts 清單看到它,才代表 backend
+   透過 API 呼叫它會成功——沒匯入的話 `POST /api/alerts/{id}/actions`
+   (action_type=kill_process)會失敗,失敗訊息會記錄進 `response_actions.result`
+   (見 `app/services/velociraptor_remediation.py` 的說明),不會讓整個
+   request 500,但畫面上會看到「執行失敗」。
+
+### 安全性提醒
+
+`Windows.Remediation.Process` 的官方文件本身就寫「這是危險內容,沒有任何
+保護機制」("dangerous content... no guardrails")——backend 呼叫時是用
+`PidRegex` 精準比對單一 PID,不是用進程名稱模糊比對,降低誤殺風險,但
+仍然強烈建議:
+- 只有真的信任的 admin 帳號才給(見規劃決策的兩層 RBAC)
+- 正式上線前先在 Pilot 機器實測過整條流程(告警 → 按砍進程 → 輸入 PID →
+  確認端點上該進程真的被砍掉、其他進程沒受影響)
+
+---
+
+## 9. 備份策略
 
 `deploy/velociraptor/datastore/` 是 Velociraptor 的資料本體(端點資料、
 collection 結果、hunt 紀錄),`deploy/velociraptor/etc/` 是伺服器設定與憑證。

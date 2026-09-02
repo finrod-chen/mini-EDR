@@ -20,7 +20,16 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    throw new ApiError(response.status, `${init?.method ?? 'GET'} ${path} failed (${response.status})`)
+    // FastAPI 的 HTTPException 回應是 {"detail": "..."},盡量把 detail 顯示
+    // 出來,拿不到就退回泛用訊息。
+    let detail = `${init?.method ?? 'GET'} ${path} failed (${response.status})`
+    try {
+      const body = (await response.json()) as { detail?: string }
+      if (body.detail) detail = body.detail
+    } catch {
+      // 回應不是 JSON,用上面的泛用訊息就好。
+    }
+    throw new ApiError(response.status, detail)
   }
 
   if (response.status === 204) {
@@ -39,8 +48,12 @@ export function apiGet<T>(path: string, params?: Record<string, string | undefin
   return apiFetch<T>(`${path}${query}`)
 }
 
-export function apiPost<T>(path: string): Promise<T> {
-  return apiFetch<T>(path, { method: 'POST' })
+export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return apiFetch<T>(path, {
+    method: 'POST',
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
 }
 
 export function loginUrl(): string {

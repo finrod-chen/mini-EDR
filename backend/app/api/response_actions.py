@@ -27,7 +27,7 @@ class ResponseActionOut(BaseModel):
     result: str | None
 
 
-def _to_response_action_out(action: ResponseAction) -> ResponseActionOut:
+def to_response_action_out(action: ResponseAction) -> ResponseActionOut:
     return ResponseActionOut(
         action_id=action.action_id,
         alert_id=action.alert_id,
@@ -53,4 +53,4 @@ def list_response_actions(
         stmt = stmt.where(ResponseAction.performed_at <= until)
     stmt = stmt.order_by(ResponseAction.performed_at.desc())
     actions = db.execute(stmt).scalars().all()
-    return [_to_response_action_out(action) for action in actions]
+    return [to_response_action_out(action) for action in actions]

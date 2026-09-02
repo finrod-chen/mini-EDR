@@ -21,8 +21,8 @@ deploy/     Velociraptor server/client config 範本、GPO 推送流程文件
 | 1 | Velociraptor 部署 + 資產/軟體清單上線 | 進行中(部署文件/DB schema/同步 job 骨架已完成,待實機驗證) |
 | 2 | Sysmon + PostgreSQL pipeline + Defender 事件整合 | 進行中(Sysmon 部署文件、hypertable schema、事件同步 job 骨架已完成,待實機驗證) |
 | 3 | 排程 SQL 規則 + alerts 表 | 進行中(alerts 表、規則引擎、18 條規則、排程已完成,待實機資料驗證誤報率) |
-| 4 | Dashboard | 進行中(Google SSO 登入、兩層 RBAC、三個頁面、唯讀 API 已完成,應變動作按鈕先 UI-only,待實機驗證) |
-| 5 | 應變動作串接 Velociraptor API + RBAC | 未開始 |
+| 4 | Dashboard | 進行中(Google SSO 登入、兩層 RBAC、三個頁面、唯讀 API 已完成,應變動作按鈕已於 Phase 5 接上真實 API,待實機驗證) |
+| 5 | 應變動作串接 Velociraptor API + RBAC | 進行中(隔離主機/砍進程/標記誤判/忽略四個動作 API + Dashboard 按鈕已完成,待實機驗證,砍進程需先在 Velociraptor 匯入 exchange artifact 見 deploy/velociraptor/README.md 第 8 節) |
 | 6 | (選配)AI Alert Explain | 未開始 |
 
 ## 本機開發

@@ -20,7 +20,7 @@ deploy/     Velociraptor server/client config 範本、GPO 推送流程文件
 | 0 | repo 骨架 + 開發環境 | 完成 |
 | 1 | Velociraptor 部署 + 資產/軟體清單上線 | 進行中(部署文件/DB schema/同步 job 骨架已完成,待實機驗證) |
 | 2 | Sysmon + PostgreSQL pipeline + Defender 事件整合 | 進行中(Sysmon 部署文件、hypertable schema、事件同步 job 骨架已完成,待實機驗證) |
-| 3 | 排程 SQL 規則 + alerts 表 | 未開始 |
+| 3 | 排程 SQL 規則 + alerts 表 | 進行中(alerts 表、規則引擎、18 條規則、排程已完成,待實機資料驗證誤報率) |
 | 4 | Dashboard | 未開始 |
 | 5 | 應變動作串接 Velociraptor API + RBAC | 未開始 |
 | 6 | (選配)AI Alert Explain | 未開始 |
@@ -62,6 +62,7 @@ uv run python -m app.jobs.sync_assets            # 資產清單(hostname/last_se
 uv run python -m app.jobs.sync_sysmon_events      # process_events / network_events
 uv run python -m app.jobs.sync_defender_events    # defender_events
 uv run python -m app.jobs.retention               # 清除超過 6 個月的 defender_events
+uv run python -m app.rules.engine                  # 跑一次全部 18 條規則,印出各規則新開了幾筆 alert
 ```
 
 正常執行時這幾個 job 由 `app/jobs/scheduler.py` 排程(每 5 分鐘同步一次,

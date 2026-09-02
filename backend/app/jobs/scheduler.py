@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -16,6 +17,7 @@ from app.jobs.retention import purge_old_defender_events
 from app.jobs.sync_assets import sync_client_roster
 from app.jobs.sync_defender_events import sync_defender_events
 from app.jobs.sync_sysmon_events import sync_sysmon_events
+from app.rules.engine import run_all_rules
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,10 @@ def _run_purge_old_defender_events() -> None:
     _run_with_session("purge_old_defender_events", purge_old_defender_events)
 
 
+def _run_all_rules() -> None:
+    _run_with_session("run_all_rules", run_all_rules)
+
+
 def start() -> None:
     if scheduler.running:
         return
@@ -76,6 +82,17 @@ def start() -> None:
         "interval",
         hours=24,
         id="purge_old_defender_events",
+        replace_existing=True,
+    )
+    # 規則要查詢事件同步 job 剛寫入的資料,把第一次執行時間錯開 1 分鐘,
+    # 減少跟上面幾個同步 job 在同一時間點搶跑、看到還沒同步完資料的機率
+    # (不是嚴格保證,只是降低機率——即使真的搶跑,下一輪 5 分鐘後也會補上)。
+    scheduler.add_job(
+        _run_all_rules,
+        "interval",
+        minutes=5,
+        id="run_all_rules",
+        next_run_time=datetime.now() + timedelta(minutes=1),
         replace_existing=True,
     )
     scheduler.start()

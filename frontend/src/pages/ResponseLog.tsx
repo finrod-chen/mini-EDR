@@ -52,53 +52,70 @@ export function ResponseLog() {
 
   return (
     <div>
-      <h1>應變紀錄</h1>
-      <p style={{ color: '#888' }}>
-        對應 ISO 27001 事件應變稽核佐證。目前會是空的,因為隔離主機/砍進程等實際執行邏輯是 Phase 5
-        才串接 Velociraptor API。
-      </p>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'end' }}>
-        <label>
-          起始時間
-          <br />
-          <input type="datetime-local" value={since} onChange={(e) => setSince(e.target.value)} />
+      <div className="page-header">
+        <h1>應變紀錄</h1>
+        <p className="text-muted">對應 ISO 27001 事件應變稽核佐證。</p>
+      </div>
+
+      <div className="toolbar">
+        <label className="field">
+          <span className="field-label">起始時間</span>
+          <input
+            className="input"
+            type="datetime-local"
+            value={since}
+            onChange={(e) => setSince(e.target.value)}
+          />
         </label>
-        <label>
-          結束時間
-          <br />
-          <input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)} />
+        <label className="field">
+          <span className="field-label">結束時間</span>
+          <input
+            className="input"
+            type="datetime-local"
+            value={until}
+            onChange={(e) => setUntil(e.target.value)}
+          />
         </label>
-        <button disabled={actions.length === 0} onClick={() => downloadCsv(actions)}>
+        <button className="btn" disabled={actions.length === 0} onClick={() => downloadCsv(actions)}>
           匯出 CSV
         </button>
       </div>
 
-      {loading && <p>載入中…</p>}
-      {error && <p>{error}</p>}
-      {!loading && !error && actions.length === 0 && <p>目前沒有應變紀錄。</p>}
+      {loading && (
+        <div className="state-message">
+          <span className="spinner" />
+          載入中…
+        </div>
+      )}
+      {error && <p className="alert-message">{error}</p>}
+      {!loading && !error && actions.length === 0 && <p className="text-muted">目前沒有應變紀錄。</p>}
       {!loading && !error && actions.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-              <th>時間</th>
-              <th>操作者</th>
-              <th>動作類型</th>
-              <th>目標主機</th>
-              <th>結果</th>
-            </tr>
-          </thead>
-          <tbody>
-            {actions.map((action) => (
-              <tr key={action.action_id} style={{ borderBottom: '1px solid #eee' }}>
-                <td>{action.performed_at ? new Date(action.performed_at).toLocaleString() : '-'}</td>
-                <td>{action.performed_by ?? '-'}</td>
-                <td>{action.action_type ?? '-'}</td>
-                <td>{action.host ?? '-'}</td>
-                <td>{action.result ?? '-'}</td>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>時間</th>
+                <th>操作者</th>
+                <th>動作類型</th>
+                <th>目標主機</th>
+                <th>結果</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {actions.map((action) => (
+                <tr className="row" key={action.action_id}>
+                  <td className="text-muted">
+                    {action.performed_at ? new Date(action.performed_at).toLocaleString() : '-'}
+                  </td>
+                  <td>{action.performed_by ?? '-'}</td>
+                  <td>{action.action_type ?? '-'}</td>
+                  <td>{action.host ?? '-'}</td>
+                  <td>{action.result ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

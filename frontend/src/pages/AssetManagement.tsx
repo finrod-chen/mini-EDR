@@ -13,10 +13,10 @@ function isEol(osVersion: string | null): boolean {
   return KNOWN_EOL_OS_KEYWORDS.some((keyword) => lower.includes(keyword))
 }
 
-function healthScoreColor(score: number): string {
-  if (score >= 80) return '#15803d'
-  if (score >= 50) return '#b45309'
-  return '#b91c1c'
+function healthScoreClass(score: number): string {
+  if (score >= 80) return 'pill--success'
+  if (score >= 50) return ''
+  return 'pill--danger'
 }
 
 export function AssetManagement() {
@@ -46,92 +46,112 @@ export function AssetManagement() {
     }
   }
 
-  if (loading) return <p>載入中…</p>
-  if (error) return <p>{error}</p>
+  if (loading) {
+    return (
+      <div className="state-message">
+        <span className="spinner" />
+        載入中…
+      </div>
+    )
+  }
+  if (error) return <p className="alert-message">{error}</p>
 
   return (
     <div>
-      <h1>資產管理</h1>
+      <div className="page-header">
+        <h1>資產管理</h1>
+      </div>
       {assets.length === 0 ? (
-        <p>目前沒有資產資料(需要 Phase 1 的 sync_client_roster job 先跑過)。</p>
+        <p className="text-muted">目前沒有資產資料(需要 Phase 1 的 sync_client_roster job 先跑過)。</p>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #ddd' }}>
-              <th>主機名</th>
-              <th>IP</th>
-              <th>作業系統</th>
-              <th>型號 / CPU / RAM</th>
-              <th>EOL</th>
-              <th>Health Score</th>
-              <th>最後回報</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {assets.map((asset) => (
-              <Fragment key={asset.asset_id}>
-                <tr style={{ borderBottom: '1px solid #eee' }}>
-                  <td>{asset.hostname ?? '-'}</td>
-                  <td>{asset.ip ?? '-'}</td>
-                  <td>{asset.os_version ?? '-'}</td>
-                  <td>
-                    {[asset.vendor, asset.model, asset.cpu, asset.memory].filter(Boolean).join(' / ') || '-'}
-                  </td>
-                  <td>
-                    {isEol(asset.os_version) ? (
-                      <span style={{ color: '#b91c1c' }}>已過期</span>
-                    ) : (
-                      <span style={{ color: '#15803d' }}>正常</span>
-                    )}
-                  </td>
-                  <td style={{ color: healthScoreColor(asset.health_score), fontWeight: 'bold' }}>
-                    {asset.health_score}/100
-                  </td>
-                  <td>{asset.last_seen ? new Date(asset.last_seen).toLocaleString() : '從未回報'}</td>
-                  <td>
-                    <button onClick={() => toggleExpand(asset.asset_id)}>
-                      {expanded === asset.asset_id ? '收合' : '軟體清單'}
-                    </button>
-                  </td>
-                </tr>
-                {expanded === asset.asset_id && (
-                  <tr>
-                    <td colSpan={8} style={{ background: '#fafafa', padding: 16 }}>
-                      {!software[asset.asset_id] ? (
-                        <p>載入中…</p>
-                      ) : software[asset.asset_id].length === 0 ? (
-                        <p>沒有軟體安裝紀錄。</p>
-                      ) : (
-                        <table style={{ width: '100%' }}>
-                          <thead>
-                            <tr style={{ textAlign: 'left' }}>
-                              <th>軟體名稱</th>
-                              <th>版本</th>
-                              <th>發布商</th>
-                              <th>安裝時間</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {software[asset.asset_id].map((sw, i) => (
-                              // eslint-disable-next-line react/no-array-index-key -- software_inventory 沒有唯一 id 可用
-                              <tr key={i}>
-                                <td>{sw.software_name ?? '-'}</td>
-                                <td>{sw.version ?? '-'}</td>
-                                <td>{sw.publisher ?? '-'}</td>
-                                <td>{sw.install_date ? new Date(sw.install_date).toLocaleDateString() : '-'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>主機名</th>
+                <th>IP</th>
+                <th>作業系統</th>
+                <th>型號 / CPU / RAM</th>
+                <th>EOL</th>
+                <th>Health Score</th>
+                <th>最後回報</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {assets.map((asset) => (
+                <Fragment key={asset.asset_id}>
+                  <tr className="row">
+                    <td>{asset.hostname ?? '-'}</td>
+                    <td className="text-muted">{asset.ip ?? '-'}</td>
+                    <td>{asset.os_version ?? '-'}</td>
+                    <td className="text-muted">
+                      {[asset.vendor, asset.model, asset.cpu, asset.memory].filter(Boolean).join(' / ') || '-'}
+                    </td>
+                    <td>
+                      <span className={`pill ${isEol(asset.os_version) ? 'pill--danger' : 'pill--success'}`}>
+                        {isEol(asset.os_version) ? '已過期' : '正常'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`pill ${healthScoreClass(asset.health_score)}`} style={{ fontWeight: 700 }}>
+                        {asset.health_score}/100
+                      </span>
+                    </td>
+                    <td className="text-muted">
+                      {asset.last_seen ? new Date(asset.last_seen).toLocaleString() : '從未回報'}
+                    </td>
+                    <td>
+                      <button className="btn btn--ghost btn--sm" onClick={() => toggleExpand(asset.asset_id)}>
+                        {expanded === asset.asset_id ? '收合' : '軟體清單'}
+                      </button>
                     </td>
                   </tr>
-                )}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
+                  {expanded === asset.asset_id && (
+                    <tr className="detail-row">
+                      <td colSpan={8}>
+                        <div className="detail-panel">
+                          {!software[asset.asset_id] ? (
+                            <div className="state-message" style={{ padding: 0 }}>
+                              <span className="spinner" />
+                              載入中…
+                            </div>
+                          ) : software[asset.asset_id].length === 0 ? (
+                            <p className="text-muted">沒有軟體安裝紀錄。</p>
+                          ) : (
+                            <table className="data-table">
+                              <thead>
+                                <tr>
+                                  <th>軟體名稱</th>
+                                  <th>版本</th>
+                                  <th>發布商</th>
+                                  <th>安裝時間</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {software[asset.asset_id].map((sw, i) => (
+                                  // eslint-disable-next-line react/no-array-index-key -- software_inventory 沒有唯一 id 可用
+                                  <tr key={i}>
+                                    <td>{sw.software_name ?? '-'}</td>
+                                    <td>{sw.version ?? '-'}</td>
+                                    <td>{sw.publisher ?? '-'}</td>
+                                    <td>
+                                      {sw.install_date ? new Date(sw.install_date).toLocaleDateString() : '-'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

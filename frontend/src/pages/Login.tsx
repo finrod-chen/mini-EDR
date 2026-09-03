@@ -6,29 +6,41 @@ export function Login() {
   const { user, loading } = useAuth()
 
   if (loading) {
-    return <p>載入中…</p>
+    return (
+      <div className="centered-shell">
+        <div className="state-message">
+          <span className="spinner" />
+          載入中…
+        </div>
+      </div>
+    )
   }
   if (user) {
     return <Navigate to="/" replace />
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '20vh' }}>
-      <h1>mini-edr</h1>
-      <p>內部資產管理 + EDR-like 平台</p>
-      <a
-        href={loginUrl()}
+    <div className="centered-shell">
+      <div
+        className="card"
         style={{
-          marginTop: 24,
-          padding: '10px 20px',
-          border: '1px solid #ccc',
-          borderRadius: 6,
-          textDecoration: 'none',
-          color: 'inherit',
+          padding: '40px 36px',
+          textAlign: 'center',
+          width: 340,
+          animation: 'reveal 320ms cubic-bezier(0.2, 0.7, 0.3, 1)',
         }}
       >
-        使用 Google 帳號登入
-      </a>
+        <h1 style={{ fontSize: '1.75rem' }}>mini-edr</h1>
+        <p className="text-muted" style={{ marginBottom: 28 }}>
+          內部資產管理 + EDR-like 平台
+        </p>
+        <a href={loginUrl()} className="btn btn--primary" style={{ width: '100%', padding: '10px 0' }}>
+          使用 Google 帳號登入
+        </a>
+        <p className="text-faint" style={{ marginTop: 20 }}>
+          僅限 xiyuebiomed.com.tw 網域帳號
+        </p>
+      </div>
     </div>
   )
 }

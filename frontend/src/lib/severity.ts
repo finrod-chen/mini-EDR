@@ -9,13 +9,6 @@ export const SEVERITY_RANK: Record<Severity, number> = {
   Low: 3,
 }
 
-export const SEVERITY_COLOR: Record<Severity, string> = {
-  Critical: '#7f1d1d',
-  High: '#b91c1c',
-  Medium: '#b45309',
-  Low: '#6b7280',
-}
-
 export function severityRank(severity: string | null): number {
   if (severity && severity in SEVERITY_RANK) {
     return SEVERITY_RANK[severity as Severity]

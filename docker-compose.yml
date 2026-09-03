@@ -40,5 +40,44 @@ services:
       - ./deploy/velociraptor/etc/:/etc/velociraptor/
       - ./deploy/velociraptor/datastore/:/datastore/
 
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      # docker network 內部用 service name 當 host,不是 .env 裡給本機
+      # `uv run` 開發用的 localhost。
+      DATABASE_URL: postgresql+psycopg://mini_edr:mini_edr@db:5432/mini_edr
+      VELOCIRAPTOR_API_CONFIG_PATH: /velociraptor/api_client.yaml
+    volumes:
+      # 見 deploy/velociraptor/README.md 第 6 節產生的 api_client.yaml,
+      # 這個檔案不存在的話 backend 起得來但 Velociraptor 相關功能(資產同步、
+      # 事件同步、隔離主機/砍進程)都會失敗。
+      - ./deploy/velociraptor/etc/api_client.yaml:/velociraptor/api_client.yaml:ro
+    ports:
+      # 8000 已經被 velociraptor-server 的 client 連線埠佔用,backend 對外
+      # 開 8080。
+      - "8080:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Vite 是 build time 把這個值燒進靜態檔案,不是 runtime 讀環境變數
+        # (見 frontend/Dockerfile 的說明)。這裡吃根目錄 .env 的
+        # BACKEND_PUBLIC_URL,預設值只適合本機測試,部署到 NAS 要換成瀏覽器
+        # 實際連得到的位址(NAS 的 IP 或內部 DNS 名稱),不是 container 內部
+        # 的 service name。
+        VITE_API_BASE_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8080}
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    depends_on:
+      - backend
+
 volumes:
   db_data:

@@ -115,22 +115,28 @@ npm run lint
 npx tsc -b
 ```
 
+## 測試部署(整套服務用 docker compose)
+
+`docker-compose.yml` 現在有完整四個服務(`db` / `velociraptor-server` /
+`backend` / `frontend`),本機開發還是建議用 `uv run` / `npm run dev`(改
+程式碼不用重新 build image,反應快),但要驗證整套服務串起來能不能動,或
+要部署到 Synology NAS,照 **`deploy/README.md`** 的步驟走。
+
 ## Docker image
 
-`backend/Dockerfile`、`frontend/Dockerfile` 各自獨立建置(不是
-docker-compose.yml 裡那兩個外部服務的一部分,docker-compose.yml 目前只有
-`db` / `velociraptor-server`,backend/frontend 還沒接進去,本機開發用
-`uv run` / `npm run dev` 直接跑)。
+CI(`.github/workflows/ci.yml` 的 `docker` job)在 backend/frontend 測試都過
+之後自動建置 `backend/Dockerfile`、`frontend/Dockerfile` 這兩個 image;
+push 到 `master` 才會真的推上
+`ghcr.io/finrod-chen/mini-edr-backend` / `mini-edr-frontend`(private),
+PR 只驗證建得起來,不會 push。frontend image 是 build time 把
+`VITE_API_BASE_URL` 燒進靜態檔案(Vite 的限制,不是 runtime 讀環境變數),
+CI 目前用預設值建置,不能直接拿去部署——部署到 NAS 的正確流程(用
+docker-compose 從 `.env` 的 `BACKEND_PUBLIC_URL` 帶入正確值重新 build)見
+`deploy/README.md`。
+
+單獨手動 build 單一 image(不透過 docker-compose)也可以:
 
 ```bash
 docker build -t mini-edr-backend ./backend
 docker build --build-arg VITE_API_BASE_URL=https://實際網址 -t mini-edr-frontend ./frontend
 ```
-
-CI(`.github/workflows/ci.yml` 的 `docker` job)在 backend/frontend 測試都過
-之後自動建置這兩個 image;push 到 `main` 才會真的推上
-`ghcr.io/finrod-chen/mini-edr-backend` / `mini-edr-frontend`(private),
-PR 只驗證建得起來,不會 push。frontend image 是 build time 把
-`VITE_API_BASE_URL` 燒進靜態檔案(Vite 的限制,不是 runtime 讀環境變數),
-CI 目前用預設值建置,正式部署要換成實際網址需要另外用
-`--build-arg` 重新建置,不能直接拿 CI 建的 image 用。

@@ -18,7 +18,8 @@ command_line 保留完整內容不遮罩——遮罩掉指令內容會讓可疑�
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -33,6 +34,13 @@ COMMAND_LINE_MAX_LEN = 500
 RELATED_EVENTS_WINDOW = timedelta(minutes=10)
 RELATED_EVENTS_LIMIT = 5
 REQUEST_TIMEOUT_SECONDS = 30.0
+# DB/alert.created_at 一律存 UTC(見 app/rules/engine.py 的 datetime.now(UTC)),
+# 但送給 LLM 的上下文如果直接给原始 UTC 時間戳,LLM 只會照字面把 UTC 的時分
+# 寫進說明文字裡(不會自己做時區換算),導致分析師看到的說明時間跟 Dashboard
+# 上顯示的本地時間對不起來(實測差了 8 小時,現場撞到過)。這裡統一轉成
+# 部署所在時區再給 LLM,不是留給前端做的事——前端本來就是用瀏覽器時區正確
+# 顯示,問題只出在送進 LLM 上下文這一段。
+DISPLAY_TIMEZONE = ZoneInfo("Asia/Taipei")
 
 SYSTEM_PROMPT = (
     "你是內部 EDR 平台的告警輔助說明助理。你的任務只是幫資安分析師「解釋」"
@@ -72,7 +80,7 @@ def _related_process_events(session: Session, alert: Alert) -> list[dict[str, st
     events = session.execute(stmt).scalars().all()
     return [
         {
-            "timestamp": event.timestamp.isoformat() if event.timestamp else None,
+            "timestamp": _to_local_isoformat(event.timestamp),
             "image": event.image,
             "command_line": (event.command_line or "")[:COMMAND_LINE_MAX_LEN],
             "user": mask_value(event.user),
@@ -81,12 +89,18 @@ def _related_process_events(session: Session, alert: Alert) -> list[dict[str, st
     ]
 
 
+def _to_local_isoformat(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(DISPLAY_TIMEZONE).isoformat()
+
+
 def build_alert_context(session: Session, alert: Alert) -> dict[str, object]:
     return {
         "rule_name": alert.rule_name,
         "severity": alert.severity,
         "host": mask_value(alert.host),
-        "created_at": alert.created_at.isoformat() if alert.created_at else None,
+        "created_at": _to_local_isoformat(alert.created_at),
         "related_process_events": _related_process_events(session, alert),
     }
 

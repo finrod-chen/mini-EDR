@@ -105,7 +105,10 @@ def explain_alert(session: Session, alert: Alert) -> str:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
             ],
-            "max_tokens": 400,
+            # system prompt 要求控制在 150 字以內,但模型不一定每次都精準守住
+            # 這個字數;中文一個字通常要吃 1.5~2.5 個 token,額度給太緊的話
+            # 模型稍微超字數就會被硬生生截斷成沒收尾的句子,而不是自然結束。
+            "max_tokens": 800,
         },
         timeout=REQUEST_TIMEOUT_SECONDS,
     )

@@ -14,7 +14,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.db import SessionLocal
 from app.jobs.retention import purge_old_defender_events
-from app.jobs.sync_assets import sync_client_roster
+from app.jobs.sync_assets import sync_client_roster, sync_hardware_details
 from app.jobs.sync_defender_events import sync_defender_events
 from app.jobs.sync_sysmon_events import sync_sysmon_events
 from app.rules.engine import run_all_rules
@@ -35,6 +35,10 @@ def _run_with_session(job_name: str, fn: Callable[..., object]) -> None:
 
 def _run_sync_client_roster() -> None:
     _run_with_session("sync_client_roster", sync_client_roster)
+
+
+def _run_sync_hardware_details() -> None:
+    _run_with_session("sync_hardware_details", sync_hardware_details)
 
 
 def _run_sync_sysmon_events() -> None:
@@ -61,6 +65,16 @@ def start() -> None:
         "interval",
         minutes=5,
         id="sync_client_roster",
+        replace_existing=True,
+    )
+    # 硬體資訊(ip/memory)很少變動,不用跟資產清單一樣密集,而且是用 hunt()
+    # 對所有端點發起一次性收集(見 app/jobs/sync_assets.py 的說明),比資產
+    # 清單同步(單純讀 server 已有的 datastore)貴得多,間隔要拉長。
+    scheduler.add_job(
+        _run_sync_hardware_details,
+        "interval",
+        hours=6,
+        id="sync_hardware_details",
         replace_existing=True,
     )
     scheduler.add_job(

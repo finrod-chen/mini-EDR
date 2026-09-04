@@ -10,19 +10,23 @@ os_version 讀 `os_info.release`(實機驗證過,例如
 "Microsoft Windows 11 Pro23H2"),`clients()` 這個 plugin 本身就有,不用另外
 發起 collection。
 
-vendor / model / cpu / memory / ip / defender_* 這幾個欄位還是刻意先不做:
-規格核心 Artifact 清單裡的 Generic.Client.Info 只保證有
-Hostname/OS/Platform/Architecture/MACAddresses(BasicInformation source)與
-Windows 專屬的 TotalPhysicalMemory/DomainRole/IPAddresses
-(WindowsInfo source,https://docs.velociraptor.app/artifact_references/pages/generic.client.info/),
-完全沒有 vendor/model/cpu,也沒有任何 artifact 涵蓋 defender_status 相關
-欄位——這是規格本身留下的缺口,不是遺漏。實作 sync_hardware_details() 前,
-請先在真實 Velociraptor 環境對至少一台端點跑一次 Generic.Client.Info,
-對照實際輸出欄位後再補。
+sync_hardware_details() 補 ip / memory,實機對 Generic.Client.Info 的
+WindowsInfo source 驗證過真實欄位:`Computer Info.TotalPhysicalMemory`
+(位元組數字字串)、`Network Info.IPAddresses`(逗號分隔,IPv4/IPv6 混在一起,
+例如 "192.168.2.24, fe80::...")。vendor/model/cpu/defender_* 這幾個欄位
+還是刻意留白:Generic.Client.Info 的 BasicInformation/WindowsInfo 兩個
+source 完全沒有 vendor/model/cpu,也沒有任何規格核心 Artifact 清單內的
+artifact 涵蓋 defender_status 相關欄位——這是規格本身留下的缺口,不是
+遺漏或漏查。
+
+硬體資訊很少變動,不需要跟事件同步一樣密集,sync_hardware_details() 排程
+間隔要比 5 分鐘長很多(見 app/jobs/scheduler.py),而且用 hunt() 一次對
+所有端點發起,不是逐台 collect_client()——100 台端點的規模下效率差很多。
 """
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,6 +35,22 @@ from sqlalchemy.orm import Session
 
 from app.models.asset import AssetInventory
 from app.services import velociraptor_client
+
+_HARDWARE_HUNT_VQL = """
+SELECT hunt(
+    description='mini-edr sync_hardware_details',
+    artifacts=['Generic.Client.Info'],
+    os="windows",
+    expires=now() + 1800
+) AS hunt_id
+FROM scope()
+"""
+
+_HARDWARE_HUNT_RESULTS_VQL = (
+    "SELECT * FROM hunt_results(hunt_id=HuntId, artifact='Generic.Client.Info/WindowsInfo')"
+)
+
+_BYTES_PER_GIB = 1024**3
 
 CLIENT_ROSTER_VQL = """
 SELECT client_id,
@@ -87,18 +107,77 @@ def sync_client_roster(session: Session, rows: list[dict[str, Any]] | None = Non
     return synced
 
 
-def sync_hardware_details(session: Session) -> None:
-    """待補:vendor/model/cpu/memory/ip/defender_* 欄位同步(os_version 已經在
-    sync_client_roster() 裡處理掉了,見本模組開頭的說明)。
+def _format_memory(total_physical_memory: object) -> str | None:
+    if total_physical_memory is None:
+        return None
+    try:
+        bytes_value = int(str(total_physical_memory))
+    except ValueError:
+        return None
+    return f"{bytes_value / _BYTES_PER_GIB:.1f} GB"
 
-    需要先在真實 Velociraptor 環境確認 Generic.Client.Info(以及 Defender
-    狀態要另外找資料來源,規格的核心 Artifact 清單沒有涵蓋)的實際輸出欄位,
-    見本模組開頭的說明,才不會寫出憑空猜欄位名稱、實際永遠是 None 的程式碼。
+
+def _first_ipv4(ip_addresses: object) -> str | None:
+    """IPAddresses 是逗號分隔字串,IPv4/IPv6 混在一起(IPv6 含 fe80:: 這種
+    link-local 位址)。IPv6 一定含冒號,用這個簡單排除法取第一個 IPv4。"""
+    if not isinstance(ip_addresses, str):
+        return None
+    for candidate in ip_addresses.split(","):
+        candidate = candidate.strip()
+        if candidate and ":" not in candidate:
+            return candidate
+    return None
+
+
+def sync_hardware_details(
+    session: Session, rows: list[dict[str, Any]] | None = None
+) -> int:
+    """補 asset_inventory 的 ip / memory(vendor/model/cpu 見本模組開頭的說明,
+    Generic.Client.Info 沒有提供,持續留白)。回傳更新筆數。
+
+    只更新已經存在的資產(由 sync_client_roster() 建立),不會自己新建——
+    硬體同步的排程間隔比資產清單同步長很多,不該讓還沒被 roster 同步過的
+    端點在這裡先被建立成缺 last_seen 的殘缺資料。
+
+    `rows` 參數只給測試注入用,正常呼叫不用傳。
     """
-    raise NotImplementedError(
-        "需要先在真實 Velociraptor 環境確認 Generic.Client.Info 的實際輸出欄位,"
-        "見 deploy/velociraptor/README.md 與本模組的說明"
-    )
+    if rows is None:
+        launch_rows = velociraptor_client.query(_HARDWARE_HUNT_VQL)
+        hunt_id = str(launch_rows[0]["hunt_id"]["HuntId"])
+        deadline = time.monotonic() + 90
+        rows = []
+        while True:
+            rows = velociraptor_client.query(_HARDWARE_HUNT_RESULTS_VQL, HuntId=hunt_id)
+            if rows or time.monotonic() >= deadline:
+                break
+            time.sleep(5)
+
+    synced = 0
+    for row in rows:
+        computer_info = row.get("Computer Info") or {}
+        network_info = row.get("Network Info") or {}
+        hostname = computer_info.get("Name")
+        if not hostname:
+            continue
+
+        asset = session.execute(
+            select(AssetInventory).where(AssetInventory.hostname == hostname)
+        ).scalar_one_or_none()
+        if asset is None:
+            continue
+
+        memory = _format_memory(computer_info.get("TotalPhysicalMemory"))
+        if memory:
+            asset.memory = memory
+
+        ip = _first_ipv4(network_info.get("IPAddresses"))
+        if ip:
+            asset.ip = ip
+
+        synced += 1
+
+    session.commit()
+    return synced
 
 
 if __name__ == "__main__":
@@ -106,4 +185,6 @@ if __name__ == "__main__":
 
     with SessionLocal() as db_session:
         count = sync_client_roster(db_session)
-        print(f"synced {count} assets")
+        print(f"synced {count} assets (roster)")
+        hw_count = sync_hardware_details(db_session)
+        print(f"synced {hw_count} assets (hardware)")

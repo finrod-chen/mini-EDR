@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.jobs.sync_assets import sync_client_roster
+from app.jobs.sync_assets import sync_client_roster, sync_hardware_details
 from app.models.asset import AssetInventory
 from app.models.base import Base
 
@@ -68,6 +68,47 @@ def test_sync_client_roster_stores_os_version() -> None:
 
     asset = session.execute(select(AssetInventory)).scalar_one()
     assert asset.os_version == "Microsoft Windows 11 Pro23H2"
+
+
+def test_sync_hardware_details_updates_existing_asset() -> None:
+    session = make_session()
+    session.add(AssetInventory(hostname="G60010"))
+    session.commit()
+
+    # 對照實機對 Generic.Client.Info/WindowsInfo 驗證過的真實結構。
+    rows = [
+        {
+            "Computer Info": {
+                "Name": "G60010",
+                "TotalPhysicalMemory": "25567424512",
+            },
+            "Network Info": {
+                "IPAddresses": "192.168.2.24, fe80::93b3:e824:5605:9ac2",
+            },
+        }
+    ]
+
+    synced = sync_hardware_details(session, rows=rows)
+
+    assert synced == 1
+    asset = session.execute(select(AssetInventory)).scalar_one()
+    assert asset.ip == "192.168.2.24"
+    assert asset.memory == "23.8 GB"
+
+
+def test_sync_hardware_details_skips_unknown_hostname() -> None:
+    session = make_session()
+    rows = [
+        {
+            "Computer Info": {"Name": "UNKNOWN-PC", "TotalPhysicalMemory": "1000"},
+            "Network Info": {"IPAddresses": "10.0.0.1"},
+        }
+    ]
+
+    synced = sync_hardware_details(session, rows=rows)
+
+    assert synced == 0
+    assert session.execute(select(AssetInventory)).scalars().all() == []
 
 
 def test_sync_client_roster_skips_rows_without_hostname() -> None:

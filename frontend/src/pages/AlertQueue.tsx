@@ -11,17 +11,18 @@ const STATUS_LABEL: Record<string, string> = {
   false_positive: '誤判',
 }
 
-// 高風險、不容易復原的動作(danger,實心紅)跟單純改狀態的安全動作
-// (outline,有邊框中性色)分開兩組,畫面上也用間距隔開,降低危險動作被
-// 按錯的機率(見 AlertQueue 詳情頁的按鈕排版)。
+// 高風險、不容易復原的動作(danger,實心紅)跟單純改狀態的安全動作分開
+// 兩組,畫面上也用間距隔開,降低危險動作被按錯的機率(見 AlertQueue 詳情頁
+// 的按鈕排版)。安全動作彼此也給不同實色(primary 深藍/success 深綠),
+// 不共用同一個中性色,一眼就能分辨點的是哪一個。
 const HIGH_RISK_ACTION_BUTTONS: { type: ActionType; label: string; confirm?: string }[] = [
   { type: 'quarantine', label: '隔離主機', confirm: '確定要隔離這台主機嗎?這會阻斷它的對外網路連線。' },
   { type: 'kill_process', label: '砍進程' },
 ]
 
-const SAFE_ACTION_BUTTONS: { type: ActionType; label: string }[] = [
-  { type: 'mark_false_positive', label: '標記誤判' },
-  { type: 'ignore', label: '忽略' },
+const SAFE_ACTION_BUTTONS: { type: ActionType; label: string; variant: 'primary' | 'success' }[] = [
+  { type: 'mark_false_positive', label: '標記誤判', variant: 'primary' },
+  { type: 'ignore', label: '忽略', variant: 'success' },
 ]
 
 export function AlertQueue() {
@@ -96,11 +97,11 @@ export function AlertQueue() {
     }
   }
 
-  const explainAlert = async (alert: Alert) => {
+  const explainAlert = async (alert: Alert, force: boolean) => {
     setExplainPending(alert.alert_id)
     setExplainError((prev) => ({ ...prev, [alert.alert_id]: '' }))
     try {
-      const updated = await apiPost<Alert>(`/api/alerts/${alert.alert_id}/explain`)
+      const updated = await apiPost<Alert>(`/api/alerts/${alert.alert_id}/explain?force=${force}`)
       setAlerts((prev) => prev.map((a) => (a.alert_id === updated.alert_id ? updated : a)))
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'AI 說明產生失敗'
@@ -205,7 +206,7 @@ export function AlertQueue() {
                             <button
                               className="btn btn--sm"
                               disabled={explainPending === alert.alert_id}
-                              onClick={() => void explainAlert(alert)}
+                              onClick={() => void explainAlert(alert, Boolean(alert.ai_explanation))}
                             >
                               {alert.ai_explanation ? '重新產生 AI 說明' : '產生 AI 說明'}
                             </button>
@@ -233,10 +234,10 @@ export function AlertQueue() {
                                   ))}
                                 </div>
                                 <div className="btn-row">
-                                  {SAFE_ACTION_BUTTONS.map(({ type, label }) => (
+                                  {SAFE_ACTION_BUTTONS.map(({ type, label, variant }) => (
                                     <button
                                       key={type}
-                                      className="btn btn--sm btn--outline"
+                                      className={`btn btn--sm btn--${variant}`}
                                       disabled={actionPending === alert.alert_id}
                                       onClick={() => void performAction(alert, type, undefined)}
                                     >

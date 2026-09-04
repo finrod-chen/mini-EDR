@@ -27,6 +27,7 @@
   --warning: #b45309;
   --warning-soft: rgb(180 83 9 / 10%);
   --success: #15803d;
+  --success-strong: #166534;
   --success-soft: rgb(21 128 61 / 10%);
 
   --sev-critical: #7f1d1d;
@@ -74,6 +75,7 @@
     --warning: #fbbf24;
     --warning-soft: rgb(251 191 36 / 14%);
     --success: #4ade80;
+    --success-strong: #86efac;
     --success-soft: rgb(74 222 128 / 14%);
 
     --sev-critical: #ef4444;
@@ -299,9 +301,21 @@ p {
   border-color: var(--danger-strong);
 }
 
-/* 有邊框的中性色——給「安全、單純改狀態」的動作用(標記誤判/忽略這類),
-   跟完全透明的 .btn--ghost(單純 UI 導覽,例如收合/詳情)區分開,也跟
-   .btn--danger 的實心紅一眼就能分辨,降低危險動作被按錯的機率。 */
+.btn--success {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--accent-contrast);
+}
+
+.btn--success:hover:not(:disabled) {
+  background: var(--success-strong);
+  border-color: var(--success-strong);
+}
+
+/* 有邊框的中性色——給「安全、單純改狀態」的動作用,跟完全透明的
+   .btn--ghost(單純 UI 導覽,例如收合/詳情)區分開。目前實際上沒有按鈕在用
+   這個 variant(標記誤判/忽略改成各自的 .btn--primary/.btn--success 了),
+   保留給之後其他「安全但還沒特別分類」的動作用。 */
 .btn--outline {
   background: transparent;
   border-color: var(--border-strong);

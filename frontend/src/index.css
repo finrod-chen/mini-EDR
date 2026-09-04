@@ -285,15 +285,32 @@ p {
   border-color: var(--accent-strong);
 }
 
+/* 實心填色,不用等 hover 才變明顯——這個 variant 只給不容易復原的高風險
+   動作用(隔離主機/砍進程這類),跟 .btn--outline 那種單純改狀態的安全動作
+   要能一眼分辨,不能只靠 hover 才看得出差異。 */
 .btn--danger {
-  background: var(--danger-soft);
-  border-color: transparent;
-  color: var(--danger);
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--accent-contrast);
 }
 
 .btn--danger:hover:not(:disabled) {
-  background: var(--danger);
-  color: white;
+  background: var(--danger-strong);
+  border-color: var(--danger-strong);
+}
+
+/* 有邊框的中性色——給「安全、單純改狀態」的動作用(標記誤判/忽略這類),
+   跟完全透明的 .btn--ghost(單純 UI 導覽,例如收合/詳情)區分開,也跟
+   .btn--danger 的實心紅一眼就能分辨,降低危險動作被按錯的機率。 */
+.btn--outline {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.btn--outline:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--text-muted);
 }
 
 .btn--ghost {

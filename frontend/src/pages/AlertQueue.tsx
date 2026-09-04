@@ -11,11 +11,17 @@ const STATUS_LABEL: Record<string, string> = {
   false_positive: '誤判',
 }
 
-const ACTION_BUTTONS: { type: ActionType; label: string; variant: 'danger' | 'ghost'; confirm?: string }[] = [
-  { type: 'quarantine', label: '隔離主機', variant: 'danger', confirm: '確定要隔離這台主機嗎?這會阻斷它的對外網路連線。' },
-  { type: 'kill_process', label: '砍進程', variant: 'danger' },
-  { type: 'mark_false_positive', label: '標記誤判', variant: 'ghost' },
-  { type: 'ignore', label: '忽略', variant: 'ghost' },
+// 高風險、不容易復原的動作(danger,實心紅)跟單純改狀態的安全動作
+// (outline,有邊框中性色)分開兩組,畫面上也用間距隔開,降低危險動作被
+// 按錯的機率(見 AlertQueue 詳情頁的按鈕排版)。
+const HIGH_RISK_ACTION_BUTTONS: { type: ActionType; label: string; confirm?: string }[] = [
+  { type: 'quarantine', label: '隔離主機', confirm: '確定要隔離這台主機嗎?這會阻斷它的對外網路連線。' },
+  { type: 'kill_process', label: '砍進程' },
+]
+
+const SAFE_ACTION_BUTTONS: { type: ActionType; label: string }[] = [
+  { type: 'mark_false_positive', label: '標記誤判' },
+  { type: 'ignore', label: '忽略' },
 ]
 
 export function AlertQueue() {
@@ -213,17 +219,31 @@ export function AlertQueue() {
                           </p>
                           {user?.role === 'admin' && (
                             <div>
-                              <div className="btn-row">
-                                {ACTION_BUTTONS.map(({ type, label, variant, confirm }) => (
-                                  <button
-                                    key={type}
-                                    className={`btn btn--sm btn--${variant}`}
-                                    disabled={actionPending === alert.alert_id}
-                                    onClick={() => void performAction(alert, type, confirm)}
-                                  >
-                                    {label}
-                                  </button>
-                                ))}
+                              <div className="btn-row" style={{ gap: 24 }}>
+                                <div className="btn-row">
+                                  {HIGH_RISK_ACTION_BUTTONS.map(({ type, label, confirm }) => (
+                                    <button
+                                      key={type}
+                                      className="btn btn--sm btn--danger"
+                                      disabled={actionPending === alert.alert_id}
+                                      onClick={() => void performAction(alert, type, confirm)}
+                                    >
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="btn-row">
+                                  {SAFE_ACTION_BUTTONS.map(({ type, label }) => (
+                                    <button
+                                      key={type}
+                                      className="btn btn--sm btn--outline"
+                                      disabled={actionPending === alert.alert_id}
+                                      onClick={() => void performAction(alert, type, undefined)}
+                                    >
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                               {actionMessage[alert.alert_id] && (
                                 <p className="text-muted" style={{ marginTop: 8 }}>

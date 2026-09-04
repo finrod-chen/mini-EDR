@@ -64,7 +64,12 @@ def sync_client_roster(session: Session, rows: list[dict[str, Any]] | None = Non
 
         last_seen_at = row.get("last_seen_at")
         if last_seen_at:
-            asset.last_seen = datetime.fromtimestamp(last_seen_at, tz=UTC)
+            # Velociraptor 的 clients() 回傳的 last_seen_at 是微秒(microseconds)
+            # 為單位的 Unix epoch,不是標準的秒數——直接丟給 fromtimestamp() 會把
+            # 時間往後推 100 萬倍,算出西元幾千萬年這種荒謬日期而丟出
+            # ValueError,讓整個函式在 commit 前就整個 crash(見這個 bug 被抓到
+            # 的過程:sync_client_roster 因此從來沒有真的寫進資料庫過)。
+            asset.last_seen = datetime.fromtimestamp(last_seen_at / 1_000_000, tz=UTC)
 
         synced += 1
 

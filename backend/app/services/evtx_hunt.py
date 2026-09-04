@@ -12,11 +12,19 @@ from app.services import velociraptor_client
 
 EVTX_HUNTER_ARTIFACT = "Windows.EventLogs.EvtxHunter"
 
-_LAUNCH_HUNT_VQL = """
+# artifact 名稱(在 artifacts=[...] 跟 spec 的 dict key 裡)故意用 f-string
+# 寫死成字面量,不能走 VQL env 變數帶進去——見
+# app/services/velociraptor_remediation.py 開頭的說明,hunt()/collect_client()
+# 的 ACL 檢查需要在編譯當下就能靜態解析出實際會跑哪個 artifact,如果是變數
+# 會靜默回傳 NULL(不拋錯誤),導致 launch_evtx_hunt() 拿到的 hunt_id 一直是
+# None,實機測試撞到這個坑才發現的(sync_sysmon_events/sync_defender_events
+# 因此從來沒有真的同步到任何事件)。EVTX_HUNTER_ARTIFACT 是程式碼常數不是
+# 使用者輸入,寫死進 VQL 字串沒有注入風險。
+_LAUNCH_HUNT_VQL = f"""
 SELECT hunt(
     description=Description,
-    artifacts=[Artifact],
-    spec=dict(`Windows.EventLogs.EvtxHunter`=dict(
+    artifacts=['{EVTX_HUNTER_ARTIFACT}'],
+    spec=dict(`{EVTX_HUNTER_ARTIFACT}`=dict(
         ChannelRegex=ChannelRegex,
         IdRegex=IdRegex
     )),
@@ -26,14 +34,13 @@ SELECT hunt(
 FROM scope()
 """
 
-_HUNT_RESULTS_VQL = "SELECT * FROM hunt_results(hunt_id=HuntId, artifact=Artifact)"
+_HUNT_RESULTS_VQL = f"SELECT * FROM hunt_results(hunt_id=HuntId, artifact='{EVTX_HUNTER_ARTIFACT}')"
 
 
 def launch_evtx_hunt(description: str, channel_regex: str, id_regex: str) -> str:
     rows = velociraptor_client.query(
         _LAUNCH_HUNT_VQL,
         Description=description,
-        Artifact=EVTX_HUNTER_ARTIFACT,
         ChannelRegex=channel_regex,
         IdRegex=id_regex,
     )
@@ -41,9 +48,7 @@ def launch_evtx_hunt(description: str, channel_regex: str, id_regex: str) -> str
 
 
 def fetch_hunt_results(hunt_id: str) -> list[dict[str, Any]]:
-    return velociraptor_client.query(
-        _HUNT_RESULTS_VQL, HuntId=hunt_id, Artifact=EVTX_HUNTER_ARTIFACT
-    )
+    return velociraptor_client.query(_HUNT_RESULTS_VQL, HuntId=hunt_id)
 
 
 def to_int(value: Any) -> int | None:

@@ -23,9 +23,11 @@ def assert_same_instant(actual: datetime | None, expected_epoch: int) -> None:
 
 def test_sync_client_roster_inserts_new_assets() -> None:
     session = make_session()
+    # last_seen_at 是 Velociraptor 回傳的微秒(microseconds)epoch,不是秒數,
+    # 見 app/jobs/sync_assets.py 的說明。
     rows = [
-        {"client_id": "C.1111", "hostname": "PC-01", "last_seen_at": 1_700_000_000},
-        {"client_id": "C.2222", "hostname": "PC-02", "last_seen_at": 1_700_000_100},
+        {"client_id": "C.1111", "hostname": "PC-01", "last_seen_at": 1_700_000_000_000_000},
+        {"client_id": "C.2222", "hostname": "PC-02", "last_seen_at": 1_700_000_100_000_000},
     ]
 
     synced = sync_client_roster(session, rows=rows)
@@ -42,7 +44,7 @@ def test_sync_client_roster_updates_existing_asset_by_hostname() -> None:
     session.add(AssetInventory(hostname="PC-01", last_seen=None))
     session.commit()
 
-    rows = [{"client_id": "C.1111", "hostname": "PC-01", "last_seen_at": 1_700_000_200}]
+    rows = [{"client_id": "C.1111", "hostname": "PC-01", "last_seen_at": 1_700_000_200_000_000}]
     synced = sync_client_roster(session, rows=rows)
 
     assert synced == 1

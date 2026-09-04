@@ -44,7 +44,11 @@ def launch_evtx_hunt(description: str, channel_regex: str, id_regex: str) -> str
         ChannelRegex=channel_regex,
         IdRegex=id_regex,
     )
-    return str(rows[0]["hunt_id"])
+    # hunt() 回傳的不是純字串 ID,是一個物件,真正的 ID 在裡面的 "HuntId"
+    # 欄位(注意大小寫,不是 "hunt_id")——之前直接 str() 整個 dict,產生一長串
+    # 不是有效 hunt ID 的文字,導致 fetch_hunt_results() 永遠查不到東西,
+    # 實機測試撞到這個坑才發現的。
+    return str(rows[0]["hunt_id"]["HuntId"])
 
 
 def fetch_hunt_results(hunt_id: str) -> list[dict[str, Any]]:

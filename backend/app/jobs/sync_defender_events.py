@@ -49,12 +49,11 @@ def sync_defender_events(session: Session, rows: list[dict[str, Any]] | None = N
     `rows` 只給測試注入用,正常呼叫不用傳——會自己建 hunt 並讀結果。
     """
     if rows is None:
-        hunt_id = evtx_hunt.launch_evtx_hunt(
+        rows = evtx_hunt.run_evtx_hunt(
             description="mini-edr sync_defender_events",
             channel_regex=DEFENDER_CHANNEL,
             id_regex="|".join(str(event_id) for event_id in EVENT_TYPE_BY_ID),
         )
-        rows = evtx_hunt.fetch_hunt_results(hunt_id)
 
     high_water_raw = session.execute(select(func.max(DefenderEvent.timestamp))).scalar()
     high_water = evtx_hunt.ensure_utc(high_water_raw) if high_water_raw else None

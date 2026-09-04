@@ -19,9 +19,11 @@ dict),但沒有實機測過。
   紀錄範圍,不是只抓「上次同步之後」的新事件——不確定 EvtxHunter 有沒有
   內建時間篩選參數,所以不去猜參數名稱,改成寫入端用(全域 MAX(timestamp))
   當高水位篩掉已經寫過的事件。
-- 沒有等 hunt 全部端點跑完就讀結果(100 台端點不一定都在線、也不一定同時
-  回應),呼叫端要接受單次同步可能拿不到還沒回應的端點資料,下次排程會
-  再補上。
+- `evtx_hunt.run_evtx_hunt()` 會輪詢等結果,最多等 90 秒(實測單一端點約
+  60 秒跑完),但 100 台端點不一定都在線、也不一定同時回應,逾時後拿到的
+  可能還是部分結果——沒回應完的端點這次抓不到,下次排程會再補上,但因為
+  每次都是全新的 hunt,漏掉的這次不會在下一輪被「追上」,只能等下一輪
+  自然涵蓋到。
 - 高水位是全域 MAX,不是分主機,若某台端點時鐘明顯超前,可能誤壓到其他
   主機同時間窗的事件——量小的環境目前先接受這個簡化。
 """
@@ -49,12 +51,11 @@ def sync_sysmon_events(
     `rows` 只給測試注入用,正常呼叫不用傳——會自己建 hunt 並讀結果。
     """
     if rows is None:
-        hunt_id = evtx_hunt.launch_evtx_hunt(
+        rows = evtx_hunt.run_evtx_hunt(
             description="mini-edr sync_sysmon_events",
             channel_regex=SYSMON_CHANNEL,
             id_regex=f"{PROCESS_CREATE_EVENT_ID}|{NETWORK_CONNECT_EVENT_ID}",
         )
-        rows = evtx_hunt.fetch_hunt_results(hunt_id)
 
     process_high_water_raw = session.execute(select(func.max(ProcessEvent.timestamp))).scalar()
     network_high_water_raw = session.execute(select(func.max(NetworkEvent.timestamp))).scalar()

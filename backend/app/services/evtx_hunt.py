@@ -5,6 +5,7 @@ app/jobs/sync_defender_events.py 共用。
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -53,6 +54,37 @@ def launch_evtx_hunt(description: str, channel_regex: str, id_regex: str) -> str
 
 def fetch_hunt_results(hunt_id: str) -> list[dict[str, Any]]:
     return velociraptor_client.query(_HUNT_RESULTS_VQL, HuntId=hunt_id)
+
+
+def run_evtx_hunt(
+    description: str,
+    channel_regex: str,
+    id_regex: str,
+    *,
+    poll_interval: float = 5.0,
+    timeout: float = 90.0,
+) -> list[dict[str, Any]]:
+    """建 hunt 並輪詢等結果,取代「建完立刻查」。
+
+    hunt 是非同步的:client 要等下一次 polling 週期才會真的去執行
+    Windows.EventLogs.EvtxHunter,實測單一端點掃完 evtx、回報結果大約要
+    60 秒左右。建完立刻查幾乎每次都是空的,而且舊寫法每次排程都建一個新
+    hunt、查一次沒資料就整個丟掉,不會在下一輪排程回頭再查,等於永遠讀不到
+    資料——實機測試撞到這個坑才發現的。
+
+    這裡改成同一次呼叫裡輪詢等待,逾時(預設 90 秒)為止,回傳當下拿到的
+    結果(即使還是空的,呼叫端本來就已經接受單次同步可能拿不到還沒回應
+    完的端點資料這個限制)。排程 job 是在 APScheduler 的背景 thread 執行,
+    在這裡同步等待數十秒不會擋到 FastAPI 的 request 處理。
+    """
+    hunt_id = launch_evtx_hunt(description, channel_regex, id_regex)
+    deadline = time.monotonic() + timeout
+    rows: list[dict[str, Any]] = []
+    while True:
+        rows = fetch_hunt_results(hunt_id)
+        if rows or time.monotonic() >= deadline:
+            return rows
+        time.sleep(poll_interval)
 
 
 def to_int(value: Any) -> int | None:

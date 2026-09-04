@@ -22,6 +22,11 @@ artifact 涵蓋 defender_status 相關欄位——這是規格本身留下的缺
 硬體資訊很少變動,不需要跟事件同步一樣密集,sync_hardware_details() 排程
 間隔要比 5 分鐘長很多(見 app/jobs/scheduler.py),而且用 hunt() 一次對
 所有端點發起,不是逐台 collect_client()——100 台端點的規模下效率差很多。
+
+sync_software_inventory() 用 Windows.Detection.Amcache(見函式本身的說明
+——這個 artifact 的正確名稱、資料特性、以及只留有 EntryName 紀錄的過濾
+決策都是實機驗證/跟使用者確認過的,細節寫在函式 docstring,不重複寫在
+這裡),排程頻率跟硬體同步一樣低。
 """
 
 from __future__ import annotations
@@ -30,10 +35,10 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models.asset import AssetInventory
+from app.models.asset import AssetInventory, SoftwareInventory
 from app.services import velociraptor_client
 
 _HARDWARE_HUNT_VQL = """
@@ -50,7 +55,48 @@ _HARDWARE_HUNT_RESULTS_VQL = (
     "SELECT * FROM hunt_results(hunt_id=HuntId, artifact='Generic.Client.Info/WindowsInfo')"
 )
 
+# "Windows.Detection.Amcache" 不是 Windows.System.Amcache(那個名稱在這個
+# Velociraptor 版本不存在,實機測過會直接 "Unknown artifact")。這是社群
+# artifact(作者 Matt Green),GUI 的 View Artifacts 搜尋 Amcache 找到、手動
+# 存成 Server Artifact 才能用,原始 YAML 裡的 name 欄位其實寫的是
+# "Custom.Windows.Detection.Amcache",但存檔後實際生效的名稱是這裡的
+# "Windows.Detection.Amcache"(沒有 Custom. 前綴),同樣是實機驗證過才確定
+# 的,不要憑印象改回帶前綴的版本。
+_SOFTWARE_HUNT_VQL = """
+SELECT hunt(
+    description='mini-edr sync_software_inventory',
+    artifacts=['Windows.Detection.Amcache'],
+    os="windows",
+    expires=now() + 1800
+) AS hunt_id
+FROM scope()
+"""
+
+_SOFTWARE_HUNT_RESULTS_VQL = (
+    "SELECT * FROM hunt_results(hunt_id=HuntId, artifact='Windows.Detection.Amcache')"
+)
+
 _BYTES_PER_GIB = 1024**3
+
+
+def _launch_and_poll_hunt(
+    launch_vql: str, results_vql: str, *, timeout: float = 90.0, poll_interval: float = 5.0
+) -> list[dict[str, Any]]:
+    """建 hunt 並輪詢等結果,而不是建完立刻查——hunt 是非同步的,client 要等
+    下一次 polling 週期才會真的執行,立刻查幾乎都是空的(同
+    app/services/evtx_hunt.py 的 run_evtx_hunt() 撞到的坑,這裡另外寫一份是
+    因為 Generic.Client.Info/Windows.Detection.Amcache 不需要
+    ChannelRegex/IdRegex 這種 evtx 專屬的 spec 參數,共用介面不合適)。
+    """
+    launch_rows = velociraptor_client.query(launch_vql)
+    hunt_id = str(launch_rows[0]["hunt_id"]["HuntId"])
+    deadline = time.monotonic() + timeout
+    rows: list[dict[str, Any]] = []
+    while True:
+        rows = velociraptor_client.query(results_vql, HuntId=hunt_id)
+        if rows or time.monotonic() >= deadline:
+            return rows
+        time.sleep(poll_interval)
 
 CLIENT_ROSTER_VQL = """
 SELECT client_id,
@@ -142,15 +188,7 @@ def sync_hardware_details(
     `rows` 參數只給測試注入用,正常呼叫不用傳。
     """
     if rows is None:
-        launch_rows = velociraptor_client.query(_HARDWARE_HUNT_VQL)
-        hunt_id = str(launch_rows[0]["hunt_id"]["HuntId"])
-        deadline = time.monotonic() + 90
-        rows = []
-        while True:
-            rows = velociraptor_client.query(_HARDWARE_HUNT_RESULTS_VQL, HuntId=hunt_id)
-            if rows or time.monotonic() >= deadline:
-                break
-            time.sleep(5)
+        rows = _launch_and_poll_hunt(_HARDWARE_HUNT_VQL, _HARDWARE_HUNT_RESULTS_VQL)
 
     synced = 0
     for row in rows:
@@ -180,6 +218,77 @@ def sync_hardware_details(
     return synced
 
 
+def sync_software_inventory(
+    session: Session, rows: list[dict[str, Any]] | None = None
+) -> int:
+    """用 Windows.Detection.Amcache 補 software_inventory(見本模組開頭對這個
+    artifact 的說明)。回傳寫入筆數。
+
+    Amcache 記錄的是「執行過的 PE 檔案」,不是嚴格意義上的「已安裝軟體」,
+    一台機器動輒回報幾千筆,大量是沒有 EntryName 的驅動程式/系統元件
+    (EntryType 常是 InventoryNonArp,代表沒透過「新增/移除程式」註冊安裝)。
+    這裡只留 EntryName 不是空字串的紀錄,把明顯不是「軟體」的雜訊濾掉
+    ——這是規劃決策,不是資料有缺陷:濾掉的部分依然是真實資料,只是不適合
+    當「軟體清單」呈現。
+
+    install_date 故意不填:Amcache 沒有可靠的「安裝日期」欄位,KeyMTime
+    (登錄機碼修改時間)頂多是「第一次被記錄」的時間,跟真正的安裝時間
+    不是同一件事,硬湊容易誤導分析師。
+
+    每次執行都是整批覆蓋(先刪掉該資產舊的 software_inventory 再寫入新的),
+    不是逐筆 append——這份資料本質是「當下的快照」,不該無限累積成一堆
+    重複紀錄的歷史 log。
+
+    只更新已經存在的資產(邏輯同 sync_hardware_details()),`rows` 參數只給
+    測試注入用,正常呼叫不用傳。
+    """
+    if rows is None:
+        rows = _launch_and_poll_hunt(_SOFTWARE_HUNT_VQL, _SOFTWARE_HUNT_RESULTS_VQL)
+
+    by_hostname: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        entry_name = row.get("EntryName")
+        fqdn = row.get("Fqdn")
+        if not entry_name or not fqdn:
+            continue
+        hostname = str(fqdn).split(".")[0]
+        by_hostname.setdefault(hostname, []).append(row)
+
+    synced = 0
+    for hostname, entries in by_hostname.items():
+        asset = session.execute(
+            select(AssetInventory).where(AssetInventory.hostname == hostname)
+        ).scalar_one_or_none()
+        if asset is None:
+            continue
+
+        session.execute(
+            delete(SoftwareInventory).where(SoftwareInventory.asset_id == asset.asset_id)
+        )
+
+        seen: set[tuple[str, str | None]] = set()
+        for row in entries:
+            name = str(row["EntryName"])
+            version = row.get("Version") or None
+            key = (name, version)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            session.add(
+                SoftwareInventory(
+                    asset_id=asset.asset_id,
+                    software_name=name,
+                    version=version,
+                    publisher=row.get("Publisher") or None,
+                )
+            )
+            synced += 1
+
+    session.commit()
+    return synced
+
+
 if __name__ == "__main__":
     from app.core.db import SessionLocal
 
@@ -188,3 +297,5 @@ if __name__ == "__main__":
         print(f"synced {count} assets (roster)")
         hw_count = sync_hardware_details(db_session)
         print(f"synced {hw_count} assets (hardware)")
+        sw_count = sync_software_inventory(db_session)
+        print(f"synced {sw_count} software entries")

@@ -3,8 +3,12 @@ from datetime import UTC, datetime
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.jobs.sync_assets import sync_client_roster, sync_hardware_details
-from app.models.asset import AssetInventory
+from app.jobs.sync_assets import (
+    sync_client_roster,
+    sync_hardware_details,
+    sync_software_inventory,
+)
+from app.models.asset import AssetInventory, SoftwareInventory
 from app.models.base import Base
 
 
@@ -109,6 +113,60 @@ def test_sync_hardware_details_skips_unknown_hostname() -> None:
 
     assert synced == 0
     assert session.execute(select(AssetInventory)).scalars().all() == []
+
+
+def test_sync_software_inventory_filters_and_dedupes() -> None:
+    session = make_session()
+    session.add(AssetInventory(hostname="G60010"))
+    session.commit()
+
+    rows = [
+        # 有 EntryName,要留下
+        {
+            "EntryName": "notepad.exe",
+            "Version": "10.0.1",
+            "Publisher": "Microsoft Corporation",
+            "Fqdn": "G60010.ad.xiyuebiomed.com.tw",
+        },
+        # 同名同版本重複一次,要去重
+        {
+            "EntryName": "notepad.exe",
+            "Version": "10.0.1",
+            "Publisher": "Microsoft Corporation",
+            "Fqdn": "G60010.ad.xiyuebiomed.com.tw",
+        },
+        # 沒有 EntryName(驅動程式/系統元件那類雜訊)要被濾掉
+        {
+            "EntryName": "",
+            "Version": "1.0",
+            "Fqdn": "G60010.ad.xiyuebiomed.com.tw",
+        },
+        # 沒有 Fqdn 對不到任何主機,要被濾掉
+        {"EntryName": "orphan.exe", "Version": "1.0"},
+    ]
+
+    synced = sync_software_inventory(session, rows=rows)
+
+    assert synced == 1
+    entry = session.execute(select(SoftwareInventory)).scalar_one()
+    assert entry.software_name == "notepad.exe"
+    assert entry.version == "10.0.1"
+    assert entry.publisher == "Microsoft Corporation"
+
+
+def test_sync_software_inventory_replaces_previous_snapshot() -> None:
+    session = make_session()
+    asset = AssetInventory(hostname="G60010")
+    session.add(asset)
+    session.commit()
+    session.add(SoftwareInventory(asset_id=asset.asset_id, software_name="stale.exe"))
+    session.commit()
+
+    rows = [{"EntryName": "fresh.exe", "Fqdn": "G60010.ad.xiyuebiomed.com.tw"}]
+    sync_software_inventory(session, rows=rows)
+
+    entries = session.execute(select(SoftwareInventory)).scalars().all()
+    assert [e.software_name for e in entries] == ["fresh.exe"]
 
 
 def test_sync_client_roster_skips_rows_without_hostname() -> None:

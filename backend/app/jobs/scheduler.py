@@ -14,7 +14,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.db import SessionLocal
 from app.jobs.retention import purge_old_defender_events
-from app.jobs.sync_assets import sync_client_roster, sync_hardware_details
+from app.jobs.sync_assets import (
+    sync_client_roster,
+    sync_hardware_details,
+    sync_software_inventory,
+)
 from app.jobs.sync_defender_events import sync_defender_events
 from app.jobs.sync_sysmon_events import sync_sysmon_events
 from app.rules.engine import run_all_rules
@@ -39,6 +43,10 @@ def _run_sync_client_roster() -> None:
 
 def _run_sync_hardware_details() -> None:
     _run_with_session("sync_hardware_details", sync_hardware_details)
+
+
+def _run_sync_software_inventory() -> None:
+    _run_with_session("sync_software_inventory", sync_software_inventory)
 
 
 def _run_sync_sysmon_events() -> None:
@@ -75,6 +83,17 @@ def start() -> None:
         "interval",
         hours=6,
         id="sync_hardware_details",
+        replace_existing=True,
+    )
+    # 軟體清單(Windows.Detection.Amcache,見 app/jobs/sync_assets.py 的說明)
+    # 同樣是貴的 hunt、同樣很少變動,間隔拉得更長;跟硬體同步的第一次執行
+    # 錯開 3 分鐘,避免兩個都對所有端點發起 hunt 的排程同時搶跑。
+    scheduler.add_job(
+        _run_sync_software_inventory,
+        "interval",
+        hours=12,
+        id="sync_software_inventory",
+        next_run_time=datetime.now() + timedelta(minutes=3),
         replace_existing=True,
     )
     scheduler.add_job(

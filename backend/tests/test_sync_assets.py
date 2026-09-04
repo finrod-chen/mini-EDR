@@ -53,6 +53,23 @@ def test_sync_client_roster_updates_existing_asset_by_hostname() -> None:
     assert_same_instant(assets[0].last_seen, 1_700_000_200)
 
 
+def test_sync_client_roster_stores_os_version() -> None:
+    session = make_session()
+    rows = [
+        {
+            "client_id": "C.1111",
+            "hostname": "PC-01",
+            "os_version": "Microsoft Windows 11 Pro23H2",
+            "last_seen_at": 1_700_000_000_000_000,
+        }
+    ]
+
+    sync_client_roster(session, rows=rows)
+
+    asset = session.execute(select(AssetInventory)).scalar_one()
+    assert asset.os_version == "Microsoft Windows 11 Pro23H2"
+
+
 def test_sync_client_roster_skips_rows_without_hostname() -> None:
     session = make_session()
     rows = [{"client_id": "C.1111", "hostname": None, "last_seen_at": 1_700_000_000}]

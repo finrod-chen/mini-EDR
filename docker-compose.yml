@@ -7,7 +7,11 @@ services:
       POSTGRES_PASSWORD: mini_edr
       POSTGRES_DB: mini_edr
     ports:
-      - "5432:5432"
+      # host 端改成 5433,因為 NAS 上原生已有一個 postgres 佔用 5432(bind
+      # 在 127.0.0.1)。container 內部還是 5432,backend 走 docker network
+      # 內的 `db:5432` 連線,不受這裡影響;這個對外的 port 只是方便從 NAS
+      # shell 用 psql debug 用。
+      - "5433:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:

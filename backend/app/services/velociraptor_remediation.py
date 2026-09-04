@@ -16,6 +16,14 @@ app/services/evtx_hunt.py 的 hunt() 用法是同一個限制、同一套處理�
 `AS Flow` 再讀 `flow_id`),沒有實機測過,不確定哪個是對的,索性整包原始
 回應記錄進 response_actions.result 當稽核佐證就好,要追查細節時去
 Velociraptor GUI 查該 client 的 flow 紀錄即可。
+
+`artifacts=[...]` 跟 `spec=dict(ArtifactName=...)` 裡的 artifact 名稱
+故意直接用 f-string 寫死成字面量,不能像 client_id/PidRegex 那樣走 VQL env
+變數帶進去——Velociraptor 的 ACL 檢查需要在編譯當下就能靜態解析出實際會
+跑哪個 artifact 才能核對呼叫者有沒有權限,如果是變數(哪怕值在 Python 這
+端是常數),collect_client() 會直接靜默回傳 NULL(不會拋出任何錯誤或
+log),實機測試撞到這個坑才發現的。QUARANTINE_ARTIFACT/KILL_PROCESS_ARTIFACT
+本身是程式碼常數不是使用者輸入,寫死進 VQL 字串沒有注入風險。
 """
 
 from __future__ import annotations
@@ -31,19 +39,19 @@ QUARANTINE_ARTIFACT = "Windows.Remediation.Quarantine"
 # deploy/velociraptor/README.md 第 9 節,否則這裡會直接失敗。
 KILL_PROCESS_ARTIFACT = "Windows.Remediation.Process"
 
-_QUARANTINE_VQL = """
+_QUARANTINE_VQL = f"""
 SELECT collect_client(
     client_id=ClientId,
-    artifacts=[Artifact]
+    artifacts=['{QUARANTINE_ARTIFACT}']
 ) AS Result
 FROM scope()
 """
 
-_KILL_PROCESS_VQL = """
+_KILL_PROCESS_VQL = f"""
 SELECT collect_client(
     client_id=ClientId,
-    artifacts=[Artifact],
-    spec=dict(`Windows.Remediation.Process`=dict(
+    artifacts=['{KILL_PROCESS_ARTIFACT}'],
+    spec=dict(`{KILL_PROCESS_ARTIFACT}`=dict(
         PidRegex=PidRegex,
         ReallyDoIt=TRUE
     ))
@@ -72,9 +80,7 @@ def _result_to_json(rows: list[dict[str, object]]) -> str:
 
 def quarantine_host(hostname: str) -> str:
     client_id = resolve_client_id(hostname)
-    rows = velociraptor_client.query(
-        _QUARANTINE_VQL, ClientId=client_id, Artifact=QUARANTINE_ARTIFACT
-    )
+    rows = velociraptor_client.query(_QUARANTINE_VQL, ClientId=client_id)
     return _result_to_json(rows)
 
 
@@ -83,7 +89,6 @@ def kill_process(hostname: str, pid: int) -> str:
     rows = velociraptor_client.query(
         _KILL_PROCESS_VQL,
         ClientId=client_id,
-        Artifact=KILL_PROCESS_ARTIFACT,
         PidRegex=f"^{pid}$",
     )
     return _result_to_json(rows)

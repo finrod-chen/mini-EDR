@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -15,7 +16,7 @@ from app.models.alert import Alert
 from app.models.base import Base
 from app.models.response_action import ResponseAction
 from app.models.user import ADMIN_ROLE, VIEWER_ROLE
-from app.services import velociraptor_remediation
+from app.services import file_verification, velociraptor_remediation
 
 
 @pytest.fixture
@@ -158,6 +159,79 @@ def test_quarantine_failure_is_recorded_but_alert_stays_open(
     ):
         response = admin_client.post(
             f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "quarantine"}
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result"].startswith("failed:")
+    session.refresh(alert)
+    assert alert.status == "open"
+
+
+def test_verify_file_without_file_path_is_rejected(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session)
+    response = admin_client.post(
+        f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "verify_file"}
+    )
+    assert response.status_code == 422
+
+
+def test_verify_file_without_host_is_rejected(admin_client: TestClient, session: Session) -> None:
+    alert = add_alert(session, host=None)
+    response = admin_client.post(
+        f"/api/alerts/{alert.alert_id}/actions",
+        json={"action_type": "verify_file", "file_path": "C:\\Windows\\win.ini"},
+    )
+    assert response.status_code == 422
+
+
+def test_verify_file_success_does_not_change_alert_status(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session, host="PC-01")
+    classification = file_verification.ClassificationResult(
+        declared_path="C:\\Windows\\win.ini",
+        file_size=92,
+        sha256="abc123",
+        detected_label="ini",
+        detected_mime_type="text/plain",
+        detected_extensions=["ini"],
+        extension_mismatch=False,
+    )
+    with patch.object(
+        file_verification, "verify_file", return_value=classification
+    ) as mocked:
+        response = admin_client.post(
+            f"/api/alerts/{alert.alert_id}/actions",
+            json={"action_type": "verify_file", "file_path": "C:\\Windows\\win.ini"},
+        )
+
+    assert response.status_code == 200
+    mocked.assert_called_once_with("PC-01", "C:\\Windows\\win.ini")
+    session.refresh(alert)
+    # 唯讀調查動作,不像 quarantine/kill_process 會把 alert 狀態改成 acknowledged。
+    assert alert.status == "open"
+    body = response.json()
+    assert body["result"] is not None
+    result_payload = json.loads(body["result"])
+    assert result_payload["detected_label"] == "ini"
+    assert result_payload["extension_mismatch"] is False
+
+
+def test_verify_file_failure_is_recorded_but_alert_stays_open(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session, host="PC-01")
+    with patch.object(
+        file_verification,
+        "verify_file",
+        side_effect=file_verification.FileNotFoundOnClientError("boom"),
+    ):
+        response = admin_client.post(
+            f"/api/alerts/{alert.alert_id}/actions",
+            json={"action_type": "verify_file", "file_path": "C:\\nope.exe"},
         )
 
     assert response.status_code == 200

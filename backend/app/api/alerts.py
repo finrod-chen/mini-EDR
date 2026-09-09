@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Literal
@@ -15,7 +16,7 @@ from app.core.auth import UserSession, get_current_user, require_admin
 from app.core.db import get_db
 from app.models.alert import Alert
 from app.models.response_action import ResponseAction
-from app.services import ai_explain, velociraptor_remediation
+from app.services import ai_explain, file_verification, velociraptor_remediation
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -48,7 +49,7 @@ def list_alerts(
     return list(db.execute(stmt).scalars().all())
 
 
-ActionType = Literal["quarantine", "kill_process", "ignore", "mark_false_positive"]
+ActionType = Literal["quarantine", "kill_process", "ignore", "mark_false_positive", "verify_file"]
 
 # ignore/mark_false_positive 直接改狀態就好,不用呼叫 Velociraptor。
 # quarantine/kill_process 才是真的高風險動作(見 require_admin)。
@@ -58,6 +59,7 @@ _STATUS_BY_LOCAL_ACTION = {"ignore": "resolved", "mark_false_positive": "false_p
 class PerformActionRequest(BaseModel):
     action_type: ActionType
     pid: int | None = None  # 只有 action_type="kill_process" 需要
+    file_path: str | None = None  # 只有 action_type="verify_file" 需要
 
 
 @router.post("/{alert_id}/actions", response_model=ResponseActionOut)
@@ -71,10 +73,12 @@ def perform_action(
     if alert is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
 
-    if body.action_type in ("quarantine", "kill_process") and not alert.host:
+    if body.action_type in ("quarantine", "kill_process", "verify_file") and not alert.host:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "alert 沒有 host,無法執行")
     if body.action_type == "kill_process" and body.pid is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "kill_process 需要指定 pid")
+    if body.action_type == "verify_file" and not body.file_path:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "verify_file 需要指定 file_path")
 
     new_status: str | None = None
     try:
@@ -87,6 +91,12 @@ def perform_action(
             assert body.pid is not None
             result = velociraptor_remediation.kill_process(alert.host, body.pid)
             new_status = "acknowledged"
+        elif body.action_type == "verify_file":
+            # 唯讀調查動作,不改變 alert 狀態(new_status 保持 None)。
+            assert alert.host is not None
+            assert body.file_path is not None
+            classification = file_verification.verify_file(alert.host, body.file_path)
+            result = json.dumps(vars(classification), ensure_ascii=False, default=str)
         else:
             # ignore / mark_false_positive:不呼叫 Velociraptor,純粹改狀態。
             result = "ok"

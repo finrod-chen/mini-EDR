@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, apiGet, apiPost } from '../lib/api'
 import { SEVERITY_ORDER, severityRank } from '../lib/severity'
-import type { ActionType, Alert, ResponseAction, Severity } from '../lib/types'
+import type { ActionType, Alert, FileClassification, ResponseAction, Severity } from '../lib/types'
 
 const STATUS_LABEL: Record<string, string> = {
   open: '未處理',
@@ -35,6 +35,7 @@ export function AlertQueue() {
   const [error, setError] = useState<string | null>(null)
   const [actionPending, setActionPending] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<Record<string, string>>({})
+  const [fileClassification, setFileClassification] = useState<Record<string, FileClassification>>({})
   const [explainPending, setExplainPending] = useState<string | null>(null)
   const [explainError, setExplainError] = useState<Record<string, string>>({})
 
@@ -64,6 +65,7 @@ export function AlertQueue() {
     confirmMessage: string | undefined,
   ) => {
     let pid: number | undefined
+    let filePath: string | undefined
     if (actionType === 'kill_process') {
       const input = window.prompt('要砍掉的進程 PID(告警本身沒有記錄觸發的 PID,需要人工確認後手動輸入):')
       if (!input) return
@@ -75,6 +77,10 @@ export function AlertQueue() {
       if (!window.confirm(`確定要在 ${alert.host ?? '這台主機'} 上砍掉 PID ${pid} 嗎?此動作無法復原。`)) {
         return
       }
+    } else if (actionType === 'verify_file') {
+      const input = window.prompt('要驗證的檔案完整路徑(例如 C:\\Users\\Public\\suspicious.exe):')
+      if (!input) return
+      filePath = input
     } else if (confirmMessage && !window.confirm(confirmMessage)) {
       return
     }
@@ -85,9 +91,20 @@ export function AlertQueue() {
       const action = await apiPost<ResponseAction>(`/api/alerts/${alert.alert_id}/actions`, {
         action_type: actionType,
         pid,
+        file_path: filePath,
       })
-      const message = action.result?.startsWith('failed:') ? action.result : '執行成功'
-      setActionMessage((prev) => ({ ...prev, [alert.alert_id]: message }))
+      if (actionType === 'verify_file' && action.result) {
+        try {
+          const classification = JSON.parse(action.result) as FileClassification
+          setFileClassification((prev) => ({ ...prev, [alert.alert_id]: classification }))
+          setActionMessage((prev) => ({ ...prev, [alert.alert_id]: '' }))
+        } catch {
+          setActionMessage((prev) => ({ ...prev, [alert.alert_id]: action.result ?? '執行失敗' }))
+        }
+      } else {
+        const message = action.result?.startsWith('failed:') ? action.result : '執行成功'
+        setActionMessage((prev) => ({ ...prev, [alert.alert_id]: message }))
+      }
       await loadAlerts()
     } catch (err) {
       const message = err instanceof ApiError ? err.message : '執行失敗'
@@ -220,6 +237,37 @@ export function AlertQueue() {
                           </p>
                           {user?.role === 'admin' && (
                             <div>
+                              <div className="btn-row" style={{ marginBottom: 12 }}>
+                                <button
+                                  className="btn btn--sm btn--outline"
+                                  disabled={actionPending === alert.alert_id}
+                                  onClick={() => void performAction(alert, 'verify_file', undefined)}
+                                >
+                                  驗證檔案類型
+                                </button>
+                              </div>
+                              {fileClassification[alert.alert_id] && (
+                                <div className="detail-panel" style={{ marginBottom: 12 }}>
+                                  {(() => {
+                                    const c = fileClassification[alert.alert_id]
+                                    return (
+                                      <p className="text-muted">
+                                        <strong>{c.declared_path}</strong> — 偵測類型:{c.detected_label}(
+                                        {c.detected_mime_type})
+                                        {c.extension_mismatch ? (
+                                          <span className="pill pill--danger" style={{ marginLeft: 8 }}>
+                                            副檔名不符,疑似偽裝
+                                          </span>
+                                        ) : (
+                                          <span className="pill pill--success" style={{ marginLeft: 8 }}>
+                                            類型相符
+                                          </span>
+                                        )}
+                                      </p>
+                                    )
+                                  })()}
+                                </div>
+                              )}
                               <div className="btn-row" style={{ gap: 24 }}>
                                 <div className="btn-row">
                                   {HIGH_RISK_ACTION_BUTTONS.map(({ type, label, confirm }) => (

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { SkeletonRows } from '../components/SkeletonRows'
 import { apiGet } from '../lib/api'
 import type { Asset, Software } from '../lib/types'
 
@@ -102,14 +103,6 @@ export function AssetManagement() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="state-message">
-        <span className="spinner" />
-        載入中…
-      </div>
-    )
-  }
   if (error) return <p className="alert-message">{error}</p>
 
   return (
@@ -117,7 +110,7 @@ export function AssetManagement() {
       <div className="page-header">
         <h1>資產管理</h1>
       </div>
-      {assets.length === 0 ? (
+      {!loading && assets.length === 0 ? (
         <p className="text-muted">目前沒有資產資料(需要 Phase 1 的 sync_client_roster job 先跑過)。</p>
       ) : (
         <>
@@ -133,7 +126,7 @@ export function AssetManagement() {
               />
             </label>
           </div>
-          {visibleAssets.length === 0 ? (
+          {!loading && visibleAssets.length === 0 ? (
             <p className="text-muted">沒有符合搜尋條件的資產。</p>
           ) : (
             <div className="table-wrap">
@@ -151,7 +144,9 @@ export function AssetManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleAssets.map((asset) => (
+                  {loading && <SkeletonRows columns={8} />}
+                  {!loading &&
+                    visibleAssets.map((asset) => (
                     <Fragment key={asset.asset_id}>
                       <tr className="row">
                         <td>{asset.hostname ?? '-'}</td>

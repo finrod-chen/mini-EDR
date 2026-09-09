@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { SkeletonRows } from '../components/SkeletonRows'
 import { ApiError, apiGet, apiPost } from '../lib/api'
 import { SEVERITY_ORDER, severityRank } from '../lib/severity'
 import type {
@@ -154,14 +155,6 @@ export function AlertQueue() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="state-message">
-        <span className="spinner" />
-        載入中…
-      </div>
-    )
-  }
   if (error) return <p className="alert-message">{error}</p>
 
   return (
@@ -199,7 +192,7 @@ export function AlertQueue() {
         </label>
       </div>
 
-      {sortedAlerts.length === 0 ? (
+      {!loading && sortedAlerts.length === 0 ? (
         <p className="text-muted">目前沒有符合條件的告警。</p>
       ) : (
         <div className="table-wrap">
@@ -215,7 +208,9 @@ export function AlertQueue() {
               </tr>
             </thead>
             <tbody>
-              {sortedAlerts.map((alert) => (
+              {loading && <SkeletonRows columns={6} />}
+              {!loading &&
+                sortedAlerts.map((alert) => (
                 <Fragment key={alert.alert_id}>
                   <tr className="row">
                     <td>

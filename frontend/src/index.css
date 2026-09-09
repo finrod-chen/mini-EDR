@@ -37,8 +37,13 @@
 
   --radius-sm: 6px;
   --radius-md: 10px;
+  --radius-lg: 14px;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 6%);
   --shadow-md: 0 8px 24px rgb(0 0 0 / 10%);
+  --shadow-btn: 0 1px 2px rgb(0 0 0 / 8%);
+  --shadow-btn-hover: 0 4px 10px rgb(0 0 0 / 14%);
+
+  --sidebar-width: 220px;
 
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
   --duration-fast: 100ms;
@@ -85,6 +90,8 @@
 
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
     --shadow-md: 0 8px 24px rgb(0 0 0 / 50%);
+    --shadow-btn: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow-btn-hover: 0 4px 12px rgb(0 0 0 / 45%);
   }
 }
 
@@ -151,6 +158,18 @@ p {
   max-width: 1120px;
   margin: 0 auto;
   padding: 28px 24px 64px;
+  animation: page-in var(--duration-normal) var(--ease);
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .page-header {
@@ -173,22 +192,34 @@ p {
 }
 
 /* ---------------------------------------------------------------------
-   Topbar — 半透明材質,內容在下面捲動時看得到分層(見 apple-design skill
-   §12)。
+   App shell — 側邊欄固定寬度、常駐,取代原本的頂部橫向導覽。窄螢幕時側邊欄
+   變成滑出式抽屜(見 .mobile-topbar / .sidebar-backdrop)。
 ------------------------------------------------------------------------ */
-.topbar {
-  position: sticky;
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: fixed;
   top: 0;
-  z-index: 10;
+  left: 0;
+  bottom: 0;
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  z-index: 20;
+  transition: transform var(--duration-normal) var(--ease);
+}
+
+.sidebar-brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 24px;
-  background: var(--surface-translucent);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  padding: 20px 20px 16px;
+  color: var(--accent);
 }
 
 .brand {
@@ -199,13 +230,15 @@ p {
   white-space: nowrap;
 }
 
-.nav {
+.sidebar-nav {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
 }
 
-.nav-link {
-  padding: 6px 12px;
+.sidebar-link {
+  padding: 9px 12px;
   border-radius: var(--radius-sm);
   text-decoration: none;
   font-size: 0.875rem;
@@ -214,25 +247,126 @@ p {
   transition: background var(--duration-normal) var(--ease), color var(--duration-normal) var(--ease);
 }
 
-.nav-link:hover {
+.sidebar-link:hover {
   background: var(--surface-hover);
   color: var(--text);
 }
 
-.nav-link.active {
-  background: var(--accent);
-  color: var(--accent-contrast);
+.sidebar-link.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--border);
 }
 
 .user-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-size: 0.8125rem;
   color: var(--text-muted);
-  white-space: nowrap;
+  overflow: hidden;
 }
 
 .user-chip strong {
   color: var(--text);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-content {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  min-width: 0;
+}
+
+.mobile-topbar {
+  display: none;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-md);
+  }
+
+  .sidebar--open {
+    transform: translateX(0);
+  }
+
+  .app-content {
+    margin-left: 0;
+  }
+
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 10px 16px;
+    background: var(--surface-translucent);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobile-topbar .sidebar-brand {
+    padding: 0;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 40%);
+    z-index: 15;
+    animation: reveal var(--duration-normal) var(--ease);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   Logo — 外圈跟中圈用 radar 擴散節奏做 pulse,暗示「持續監測中」,不是純
+   裝飾性動畫(見 apple-design skill 對動畫要傳達意義的要求)。
+------------------------------------------------------------------------ */
+.logo-ring {
+  transform-origin: 16px 17px;
+  animation: logo-pulse 2.4s var(--ease) infinite;
+}
+
+.logo-ring--inner {
+  animation-delay: 0s;
+}
+
+.logo-ring--outer {
+  animation-delay: 0.5s;
+}
+
+@keyframes logo-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
 }
 
 /* ---------------------------------------------------------------------
@@ -255,7 +389,8 @@ p {
   text-decoration: none;
   cursor: pointer;
   transition: background var(--duration-normal) var(--ease), border-color var(--duration-normal) var(--ease),
-    transform var(--duration-fast) var(--ease), opacity var(--duration-normal) var(--ease);
+    transform var(--duration-fast) var(--ease), opacity var(--duration-normal) var(--ease),
+    box-shadow var(--duration-normal) var(--ease);
 }
 
 .btn:hover:not(:disabled) {
@@ -263,6 +398,30 @@ p {
 }
 
 .btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* 實心填色的按鈕(primary/danger/success)才需要陰影表示「可點擊、有層次」
+   ——單純改狀態的 outline/ghost 維持扁平,陰影只留給真的需要立體感的
+   互動元件用,不是每個按鈕都加(見 shadows 使用原則:陰影表示可互動性,
+   不是裝飾)。 */
+.btn--primary,
+.btn--danger,
+.btn--success {
+  box-shadow: var(--shadow-btn);
+}
+
+.btn--primary:hover:not(:disabled),
+.btn--danger:hover:not(:disabled),
+.btn--success:hover:not(:disabled) {
+  box-shadow: var(--shadow-btn-hover);
+  transform: translateY(-1px);
+}
+
+.btn--primary:active:not(:disabled),
+.btn--danger:active:not(:disabled),
+.btn--success:active:not(:disabled) {
+  box-shadow: none;
   transform: scale(0.97);
 }
 
@@ -424,6 +583,12 @@ table.data-table {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+  /* 檔案路徑、JSON 結果這類長字串沒有空白可斷行,不設上限的話會把整欄撐爆、
+     擠壓其他欄位甚至讓表格整體變形。max-width 在 auto table layout 下能
+     限制該欄寬度,搭配 overflow-wrap 讓超長字串改成換行而不是撐開版面;
+     內容比 max-width 短的欄位(數字/badge/日期)不受影響,還是照內容縮寬。 */
+  max-width: 320px;
+  overflow-wrap: anywhere;
 }
 
 .data-table th.sortable {
@@ -545,6 +710,36 @@ table.data-table {
 .alert-message {
   color: var(--danger);
   font-size: 0.8125rem;
+}
+
+/* Skeleton rows——資料還在抓的時候,表頭跟工具列先正常顯示,只有 tbody
+   換成會動的骨架列,讓使用者看得出畫面沒有卡住,而不是整頁被 spinner
+   蓋掉(見 ux 指引:async 操作要有進行中的視覺回饋)。 */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-hover);
+  border-radius: var(--radius-sm);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 25%), transparent);
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-text {
+  height: 12px;
+  width: 70%;
 }
 
 /* ---------------------------------------------------------------------

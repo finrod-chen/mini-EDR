@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { Logo } from '../components/Logo'
 import { loginUrl } from '../lib/api'
 
 export function Login() {
@@ -30,6 +31,9 @@ export function Login() {
           animation: 'reveal 320ms cubic-bezier(0.2, 0.7, 0.3, 1)',
         }}
       >
+        <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--accent)', marginBottom: 12 }}>
+          <Logo size={44} />
+        </div>
         <h1 style={{ fontSize: '1.75rem' }}>mini-edr</h1>
         <p className="text-muted" style={{ marginBottom: 28 }}>
           內部資產管理 + EDR-like 平台

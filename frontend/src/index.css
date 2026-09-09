@@ -426,6 +426,20 @@ table.data-table {
   vertical-align: middle;
 }
 
+.data-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.data-table th.sortable:hover {
+  color: var(--text);
+}
+
+.sort-indicator {
+  margin-left: 4px;
+  color: var(--accent);
+}
+
 .data-table tbody tr.row:hover {
   background: var(--surface-hover);
 }

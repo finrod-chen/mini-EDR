@@ -23,6 +23,15 @@ export interface FileClassification {
   extension_mismatch: boolean
 }
 
+export interface RelatedProcessEvent {
+  timestamp: string | null
+  pid: number | null
+  ppid: number | null
+  user: string | null
+  image: string | null
+  command_line: string | null
+}
+
 export interface ResponseAction {
   action_id: string
   alert_id: string | null
@@ -31,6 +40,11 @@ export interface ResponseAction {
   performed_by: string | null
   performed_at: string | null
   result: string | null
+}
+
+export interface HealthScoreDeduction {
+  reason: string
+  points: number
 }
 
 export interface Asset {
@@ -47,6 +61,7 @@ export interface Asset {
   defender_signature_date: string | null
   last_seen: string | null
   health_score: number
+  health_score_breakdown: HealthScoreDeduction[]
 }
 
 export interface Software {

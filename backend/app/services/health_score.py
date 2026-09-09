@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.models.asset import AssetInventory
@@ -29,21 +30,48 @@ DEFENDER_DISABLED_PENALTY = 20
 STALE_LAST_SEEN_PENALTY = 10
 
 
-def calculate_health_score(asset: AssetInventory) -> int:
-    score = 100
+@dataclass
+class HealthScoreDeduction:
+    reason: str
+    points: int
+
+
+def calculate_health_score_breakdown(asset: AssetInventory) -> list[HealthScoreDeduction]:
+    """列出實際命中的每一項扣分理由,供資產管理頁面展開明細用。
+
+    起始分數固定 100,不列進 breakdown——UI 端用 100 減掉這裡回傳的
+    points 總和重新算出總分,兩邊資料來源保持一致,不用另外傳一個
+    起始值欄位。
+    """
+    deductions: list[HealthScoreDeduction] = []
 
     os_version = (asset.os_version or "").lower()
     if any(keyword in os_version for keyword in KNOWN_EOL_OS_KEYWORDS):
-        score -= OS_EOL_PENALTY
+        deductions.append(
+            HealthScoreDeduction(f"作業系統過舊({asset.os_version})", OS_EOL_PENALTY)
+        )
 
     if asset.defender_status and asset.defender_status.lower() != "enabled":
-        score -= DEFENDER_DISABLED_PENALTY
+        deductions.append(
+            HealthScoreDeduction(
+                f"Defender 未啟用(目前狀態:{asset.defender_status})", DEFENDER_DISABLED_PENALTY
+            )
+        )
 
     if asset.last_seen is not None:
         last_seen = asset.last_seen
         if last_seen.tzinfo is None:
             last_seen = last_seen.replace(tzinfo=UTC)
         if last_seen < datetime.now(UTC) - timedelta(days=STALE_LAST_SEEN_DAYS):
-            score -= STALE_LAST_SEEN_PENALTY
+            deductions.append(
+                HealthScoreDeduction(
+                    f"超過 {STALE_LAST_SEEN_DAYS} 天未回報", STALE_LAST_SEEN_PENALTY
+                )
+            )
 
-    return max(score, 0)
+    return deductions
+
+
+def calculate_health_score(asset: AssetInventory) -> int:
+    total_deduction = sum(d.points for d in calculate_health_score_breakdown(asset))
+    return max(100 - total_deduction, 0)

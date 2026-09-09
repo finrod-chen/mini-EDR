@@ -39,6 +39,7 @@ function healthScoreClass(score: number): string {
 export function AssetManagement() {
   const [assets, setAssets] = useState<Asset[]>([])
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandedScore, setExpandedScore] = useState<string | null>(null)
   const [software, setSoftware] = useState<Record<string, Software[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -165,12 +166,23 @@ export function AssetManagement() {
                           </span>
                         </td>
                         <td>
-                          <span
+                          <button
+                            type="button"
                             className={`pill ${healthScoreClass(asset.health_score)}`}
-                            style={{ fontWeight: 700 }}
+                            style={{
+                              font: 'inherit',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border: 'none',
+                              background: 'transparent',
+                              padding: 0,
+                            }}
+                            onClick={() =>
+                              setExpandedScore(expandedScore === asset.asset_id ? null : asset.asset_id)
+                            }
                           >
-                            {asset.health_score}/100
-                          </span>
+                            {asset.health_score}/100 {expandedScore === asset.asset_id ? '▲' : '▼'}
+                          </button>
                         </td>
                         <td className="text-muted">
                           {asset.last_seen ? new Date(asset.last_seen).toLocaleString() : '從未回報'}
@@ -181,6 +193,32 @@ export function AssetManagement() {
                           </button>
                         </td>
                       </tr>
+                      {expandedScore === asset.asset_id && (
+                        <tr className="detail-row">
+                          <td colSpan={8}>
+                            <div className="detail-panel">
+                              {asset.health_score_breakdown.length === 0 ? (
+                                <p className="text-muted">沒有扣分項目,滿分 100。</p>
+                              ) : (
+                                <>
+                                  <p className="text-muted" style={{ marginBottom: 8 }}>
+                                    起始 100 分:
+                                  </p>
+                                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                    {asset.health_score_breakdown.map((item, i) => (
+                                      // eslint-disable-next-line react/no-array-index-key -- 扣分項目沒有唯一 id 可用
+                                      <li key={i} className="text-muted">
+                                        {item.reason}:−{item.points}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  <p style={{ marginTop: 8, fontWeight: 700 }}>= {asset.health_score}/100</p>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                       {expanded === asset.asset_id && (
                         <tr className="detail-row">
                           <td colSpan={8}>

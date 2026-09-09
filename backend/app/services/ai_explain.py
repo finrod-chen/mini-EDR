@@ -61,7 +61,14 @@ def mask_value(value: str | None, keep: int = MASK_KEEP_CHARS) -> str | None:
     return f"{value[:keep]}***"
 
 
-def _related_process_events(session: Session, alert: Alert) -> list[dict[str, str | None]]:
+def find_related_process_events(session: Session, alert: Alert) -> list[ProcessEvent]:
+    """依 host + 前後 10 分鐘時間窗比對 process_events,找出跟這筆告警可能
+
+    相關的進程活動。這是原始、未遮罩的 ORM 物件——供 app/api/alerts.py 的
+    調查用端點直接回傳給前端分析師看(需要看真實 user/完整路徑),AI 說明
+    的上下文遮罩留給 build_alert_context() 自己處理,不要在這裡先遮罩,
+    否則分析師用的那份也會被遮罩掉。
+    """
     if not alert.host or not alert.created_at:
         return []
 
@@ -77,7 +84,11 @@ def _related_process_events(session: Session, alert: Alert) -> list[dict[str, st
         .order_by(ProcessEvent.timestamp.desc())
         .limit(RELATED_EVENTS_LIMIT)
     )
-    events = session.execute(stmt).scalars().all()
+    return list(session.execute(stmt).scalars().all())
+
+
+def _related_process_events(session: Session, alert: Alert) -> list[dict[str, str | None]]:
+    events = find_related_process_events(session, alert)
     return [
         {
             "timestamp": _to_local_isoformat(event.timestamp),

@@ -15,6 +15,7 @@ from app.api.response_actions import ResponseActionOut, to_response_action_out
 from app.core.auth import UserSession, get_current_user, require_admin
 from app.core.db import get_db
 from app.models.alert import Alert
+from app.models.events import ProcessEvent
 from app.models.response_action import ResponseAction
 from app.services import ai_explain, file_verification, velociraptor_remediation
 
@@ -47,6 +48,35 @@ def list_alerts(
         stmt = stmt.where(Alert.status == status)
     stmt = stmt.order_by(Alert.created_at.desc())
     return list(db.execute(stmt).scalars().all())
+
+
+class RelatedProcessEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    timestamp: datetime | None
+    pid: int | None
+    ppid: int | None
+    user: str | None
+    image: str | None
+    command_line: str | None
+
+
+@router.get("/{alert_id}/related-events", response_model=list[RelatedProcessEventOut])
+def get_related_events(
+    alert_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _user: UserSession = Depends(get_current_user),
+) -> list[ProcessEvent]:
+    """告警前後 10 分鐘內、同一台主機上的進程活動,給分析師調查用——挑選要
+
+    驗證檔案類型(file_path)或砍掉哪個進程(pid)時參考,不用憑印象手打。
+    跟 ai_explain.build_alert_context() 用的是同一份關聯查詢,差別是這裡
+    回傳未遮罩的原始資料(給登入的分析師看,不是送到外部 LLM)。
+    """
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
+    return ai_explain.find_related_process_events(db, alert)
 
 
 ActionType = Literal["quarantine", "kill_process", "ignore", "mark_false_positive", "verify_file"]

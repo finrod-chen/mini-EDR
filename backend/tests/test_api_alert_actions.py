@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -14,6 +14,7 @@ from app.core.db import get_db
 from app.main import app
 from app.models.alert import Alert
 from app.models.base import Base
+from app.models.events import ProcessEvent
 from app.models.response_action import ResponseAction
 from app.models.user import ADMIN_ROLE, VIEWER_ROLE
 from app.services import file_verification, velociraptor_remediation
@@ -252,3 +253,56 @@ def test_response_action_records_performed_by_and_time(
     assert action.performed_by == "user@example.com"
     assert action.performed_at is not None
     assert action.performed_at.replace(tzinfo=UTC) >= before
+
+
+def test_related_events_returns_process_events_in_time_window(
+    viewer_client: TestClient, session: Session
+) -> None:
+    # 這是唯讀調查資料,不像 quarantine/kill_process/verify_file 需要 admin,
+    # 用 viewer_client 測正好確認這一點。
+    alert_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    alert = Alert(
+        severity="High", rule_name="r", host="PC-01", status="open", created_at=alert_time
+    )
+    session.add(alert)
+    session.add(
+        ProcessEvent(
+            timestamp=alert_time,
+            hostname="PC-01",
+            pid=1234,
+            ppid=1,
+            user="DOMAIN\\alice",
+            image="C:\\Users\\Public\\invoice.pdf.exe",
+            command_line="invoice.pdf.exe",
+        )
+    )
+    # 時間窗外、不同主機的事件都不該出現。
+    session.add(
+        ProcessEvent(
+            timestamp=alert_time - timedelta(hours=1),
+            hostname="PC-01",
+            pid=1,
+            image="C:\\Windows\\explorer.exe",
+        )
+    )
+    session.add(
+        ProcessEvent(timestamp=alert_time, hostname="PC-99", pid=1, image="C:\\other.exe")
+    )
+    session.commit()
+    session.refresh(alert)
+
+    response = viewer_client.get(f"/api/alerts/{alert.alert_id}/related-events")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["pid"] == 1234
+    assert body[0]["image"] == "C:\\Users\\Public\\invoice.pdf.exe"
+    assert body[0]["user"] == "DOMAIN\\alice"
+
+
+def test_related_events_unknown_alert_returns_404(viewer_client: TestClient) -> None:
+    response = viewer_client.get(
+        "/api/alerts/00000000-0000-0000-0000-000000000000/related-events"
+    )
+    assert response.status_code == 404

@@ -11,9 +11,14 @@ from sqlalchemy.orm import Session
 from app.core.auth import UserSession, get_current_user
 from app.core.db import get_db
 from app.models.asset import AssetInventory, SoftwareInventory
-from app.services.health_score import calculate_health_score
+from app.services.health_score import calculate_health_score_breakdown
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
+
+
+class HealthScoreDeductionOut(BaseModel):
+    reason: str
+    points: int
 
 
 class AssetOut(BaseModel):
@@ -32,6 +37,7 @@ class AssetOut(BaseModel):
     defender_signature_date: datetime | None
     last_seen: datetime | None
     health_score: int
+    health_score_breakdown: list[HealthScoreDeductionOut]
 
 
 class SoftwareOut(BaseModel):
@@ -44,6 +50,7 @@ class SoftwareOut(BaseModel):
 
 
 def _to_asset_out(asset: AssetInventory) -> AssetOut:
+    breakdown = calculate_health_score_breakdown(asset)
     return AssetOut(
         asset_id=asset.asset_id,
         hostname=asset.hostname,
@@ -57,7 +64,10 @@ def _to_asset_out(asset: AssetInventory) -> AssetOut:
         defender_last_scan=asset.defender_last_scan,
         defender_signature_date=asset.defender_signature_date,
         last_seen=asset.last_seen,
-        health_score=calculate_health_score(asset),
+        health_score=max(100 - sum(d.points for d in breakdown), 0),
+        health_score_breakdown=[
+            HealthScoreDeductionOut(reason=d.reason, points=d.points) for d in breakdown
+        ],
     )
 
 

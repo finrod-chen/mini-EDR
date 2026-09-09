@@ -2,7 +2,14 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError, apiGet, apiPost } from '../lib/api'
 import { SEVERITY_ORDER, severityRank } from '../lib/severity'
-import type { ActionType, Alert, FileClassification, ResponseAction, Severity } from '../lib/types'
+import type {
+  ActionType,
+  Alert,
+  FileClassification,
+  RelatedProcessEvent,
+  ResponseAction,
+  Severity,
+} from '../lib/types'
 
 const STATUS_LABEL: Record<string, string> = {
   open: '未處理',
@@ -38,6 +45,7 @@ export function AlertQueue() {
   const [fileClassification, setFileClassification] = useState<Record<string, FileClassification>>({})
   const [explainPending, setExplainPending] = useState<string | null>(null)
   const [explainError, setExplainError] = useState<Record<string, string>>({})
+  const [relatedEvents, setRelatedEvents] = useState<Record<string, RelatedProcessEvent[]>>({})
 
   const loadAlerts = useCallback(() => {
     setLoading(true)
@@ -63,24 +71,29 @@ export function AlertQueue() {
     alert: Alert,
     actionType: ActionType,
     confirmMessage: string | undefined,
+    prefill?: { pid?: number; filePath?: string },
   ) => {
-    let pid: number | undefined
-    let filePath: string | undefined
+    let pid: number | undefined = prefill?.pid
+    let filePath: string | undefined = prefill?.filePath
     if (actionType === 'kill_process') {
-      const input = window.prompt('要砍掉的進程 PID(告警本身沒有記錄觸發的 PID,需要人工確認後手動輸入):')
-      if (!input) return
-      pid = Number(input)
-      if (!Number.isInteger(pid) || pid <= 0) {
-        setActionMessage((prev) => ({ ...prev, [alert.alert_id]: 'PID 必須是正整數' }))
-        return
+      if (pid === undefined) {
+        const input = window.prompt('要砍掉的進程 PID(告警本身沒有記錄觸發的 PID,需要人工確認後手動輸入):')
+        if (!input) return
+        pid = Number(input)
+        if (!Number.isInteger(pid) || pid <= 0) {
+          setActionMessage((prev) => ({ ...prev, [alert.alert_id]: 'PID 必須是正整數' }))
+          return
+        }
       }
       if (!window.confirm(`確定要在 ${alert.host ?? '這台主機'} 上砍掉 PID ${pid} 嗎?此動作無法復原。`)) {
         return
       }
     } else if (actionType === 'verify_file') {
-      const input = window.prompt('要驗證的檔案完整路徑(例如 C:\\Users\\Public\\suspicious.exe):')
-      if (!input) return
-      filePath = input
+      if (filePath === undefined) {
+        const input = window.prompt('要驗證的檔案完整路徑(例如 C:\\Users\\Public\\suspicious.exe):')
+        if (!input) return
+        filePath = input
+      }
     } else if (confirmMessage && !window.confirm(confirmMessage)) {
       return
     }
@@ -111,6 +124,19 @@ export function AlertQueue() {
       setActionMessage((prev) => ({ ...prev, [alert.alert_id]: message }))
     } finally {
       setActionPending(null)
+    }
+  }
+
+  const toggleExpand = (alert: Alert) => {
+    if (expanded === alert.alert_id) {
+      setExpanded(null)
+      return
+    }
+    setExpanded(alert.alert_id)
+    if (!relatedEvents[alert.alert_id]) {
+      apiGet<RelatedProcessEvent[]>(`/api/alerts/${alert.alert_id}/related-events`)
+        .then((data) => setRelatedEvents((prev) => ({ ...prev, [alert.alert_id]: data })))
+        .catch(() => setRelatedEvents((prev) => ({ ...prev, [alert.alert_id]: [] })))
     }
   }
 
@@ -204,10 +230,7 @@ export function AlertQueue() {
                     </td>
                     <td>{alert.status ? (STATUS_LABEL[alert.status] ?? alert.status) : '-'}</td>
                     <td>
-                      <button
-                        className="btn btn--ghost btn--sm"
-                        onClick={() => setExpanded(expanded === alert.alert_id ? null : alert.alert_id)}
-                      >
+                      <button className="btn btn--ghost btn--sm" onClick={() => toggleExpand(alert)}>
                         {expanded === alert.alert_id ? '收合' : '詳情'}
                       </button>
                     </td>
@@ -231,10 +254,78 @@ export function AlertQueue() {
                               <span className="alert-message">{explainError[alert.alert_id]}</span>
                             )}
                           </div>
-                          <p className="text-faint" style={{ marginBottom: 12 }}>
-                            進程鏈需要額外一支關聯查詢 API(依主機+時間比對 process_events),目前告警 API
-                            還沒提供,先不顯示假資料。
-                          </p>
+                          <div style={{ marginBottom: 12 }}>
+                            <p className="text-muted" style={{ marginBottom: 8 }}>
+                              <strong>相關進程活動</strong>(同主機、前後 10 分鐘內):
+                            </p>
+                            {!relatedEvents[alert.alert_id] ? (
+                              <div className="state-message" style={{ padding: 0 }}>
+                                <span className="spinner" />
+                                載入中…
+                              </div>
+                            ) : relatedEvents[alert.alert_id].length === 0 ? (
+                              <p className="text-faint">沒有找到相關的進程事件。</p>
+                            ) : (
+                              <table className="data-table">
+                                <thead>
+                                  <tr>
+                                    <th>時間</th>
+                                    <th>PID</th>
+                                    <th>使用者</th>
+                                    <th>路徑</th>
+                                    <th>指令</th>
+                                    {user?.role === 'admin' && <th />}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {relatedEvents[alert.alert_id].map((event, i) => (
+                                    // eslint-disable-next-line react/no-array-index-key -- process_events 沒有回傳唯一 id
+                                    <tr key={i}>
+                                      <td className="text-muted">
+                                        {event.timestamp ? new Date(event.timestamp).toLocaleString() : '-'}
+                                      </td>
+                                      <td>{event.pid ?? '-'}</td>
+                                      <td className="text-muted">{event.user ?? '-'}</td>
+                                      <td>{event.image ?? '-'}</td>
+                                      <td className="text-faint">{event.command_line ?? '-'}</td>
+                                      {user?.role === 'admin' && (
+                                        <td>
+                                          <div className="btn-row">
+                                            {event.image && (
+                                              <button
+                                                className="btn btn--outline btn--sm"
+                                                disabled={actionPending === alert.alert_id}
+                                                onClick={() =>
+                                                  void performAction(alert, 'verify_file', undefined, {
+                                                    filePath: event.image ?? undefined,
+                                                  })
+                                                }
+                                              >
+                                                驗證此檔案
+                                              </button>
+                                            )}
+                                            {event.pid != null && (
+                                              <button
+                                                className="btn btn--danger btn--sm"
+                                                disabled={actionPending === alert.alert_id}
+                                                onClick={() =>
+                                                  void performAction(alert, 'kill_process', undefined, {
+                                                    pid: event.pid ?? undefined,
+                                                  })
+                                                }
+                                              >
+                                                砍此進程
+                                              </button>
+                                            )}
+                                          </div>
+                                        </td>
+                                      )}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
                           {user?.role === 'admin' && (
                             <div>
                               <div className="btn-row" style={{ marginBottom: 12 }}>

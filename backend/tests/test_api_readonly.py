@@ -155,6 +155,30 @@ def test_list_assets_includes_health_score(client: TestClient, session: Session)
     assert response.status_code == 200
     body = response.json()
     assert body[0]["health_score"] == 50  # 100 - 20(舊OS) - 20(Defender關閉) - 10(太久沒回報)
+    breakdown = {item["reason"]: item["points"] for item in body[0]["health_score_breakdown"]}
+    assert sum(breakdown.values()) == 50
+    assert len(breakdown) == 3
+
+
+def test_list_assets_health_score_breakdown_empty_when_no_deductions(
+    client: TestClient, session: Session
+) -> None:
+    session.add(
+        AssetInventory(
+            hostname="PC-02",
+            os_version="Windows 11 Pro",
+            defender_status="enabled",
+            last_seen=datetime.now(UTC),
+        )
+    )
+    session.commit()
+
+    response = client.get("/api/assets")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["health_score"] == 100
+    assert body[0]["health_score_breakdown"] == []
 
 
 def test_list_asset_software_returns_only_matching_asset(

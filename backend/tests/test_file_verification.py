@@ -48,7 +48,7 @@ def test_verify_file_happy_path_matching_extension() -> None:
         if "clients(" in vql:
             return [{"client_id": "C.1111", "hostname": "PC-01"}]
         if "collect_client(" in vql:
-            return [{"Result": {"FlowId": "F.ABC"}}]
+            return [{"Result": {"flow_id": "F.ABC"}}]
         return [
             {
                 "SourceFile": "C:\\Windows\\win.ini",
@@ -94,7 +94,7 @@ def test_verify_file_detects_extension_mismatch() -> None:
         if "clients(" in vql:
             return [{"client_id": "C.1111", "hostname": "PC-01"}]
         if "collect_client(" in vql:
-            return [{"Result": {"FlowId": "F.ABC"}}]
+            return [{"Result": {"flow_id": "F.ABC"}}]
         return [{"SourceFile": "x", "FileSize": len(content), "SourceFileSha256": expected_sha256}]
 
     with (
@@ -119,7 +119,7 @@ def test_verify_file_raises_on_hash_mismatch() -> None:
         if "clients(" in vql:
             return [{"client_id": "C.1111", "hostname": "PC-01"}]
         if "collect_client(" in vql:
-            return [{"Result": {"FlowId": "F.ABC"}}]
+            return [{"Result": {"flow_id": "F.ABC"}}]
         return [{"SourceFile": "x", "FileSize": 1, "SourceFileSha256": "0" * 64}]
 
     with (
@@ -135,6 +135,16 @@ def test_verify_file_rejects_invalid_path_before_resolving_client() -> None:
         with pytest.raises(file_verification.InvalidPathError):
             file_verification.verify_file("PC-01", "not-a-windows-path")
     mocked_query.assert_not_called()
+
+
+def test_launch_collection_raises_when_flow_id_missing() -> None:
+    # 2026-09-09 實機測試撞到過:回傳的鍵是小寫 flow_id,一開始誤用大寫
+    # FlowId 導致這裡永遠讀不到值——這個測試釘住正確的鍵名,避免回歸。
+    with patch.object(
+        file_verification.velociraptor_client, "query", return_value=[{"Result": {}}]
+    ):
+        with pytest.raises(RuntimeError, match="flow_id"):
+            file_verification._launch_collection("C.1111", "C:", "\\Windows\\win.ini")
 
 
 def test_poll_upload_times_out_when_no_upload_arrives() -> None:

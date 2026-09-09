@@ -117,9 +117,12 @@ def _launch_collection(client_id: str, root: str, glob: str) -> str:
         Root=root,
     )
     result = rows[0]["Result"] if rows else {}
-    flow_id = result.get("FlowId") if isinstance(result, dict) else None
+    # 實機測試確認 collect_client() 回傳的鍵是小寫 snake_case 的 flow_id
+    # (protobuf 轉 JSON 用的是 .proto 欄位命名,不是 Go struct 的 FlowId),
+    # 2026-09-09 用真實 collection 撞到這個坑才確認。
+    flow_id = result.get("flow_id") if isinstance(result, dict) else None
     if not flow_id:
-        raise RuntimeError(f"collect_client() 沒有回傳 FlowId:{result!r}")
+        raise RuntimeError(f"collect_client() 沒有回傳 flow_id:{result!r}")
     return str(flow_id)
 
 

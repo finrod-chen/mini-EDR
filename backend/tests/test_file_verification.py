@@ -46,7 +46,7 @@ def test_verify_file_happy_path_matching_extension() -> None:
     def fake_query(vql: str, **kwargs: object) -> list[dict[str, object]]:
         calls.append((vql, kwargs))
         if "clients(" in vql:
-            return [{"client_id": "C.1111"}]
+            return [{"client_id": "C.1111", "hostname": "PC-01"}]
         if "collect_client(" in vql:
             return [{"Result": {"FlowId": "F.ABC"}}]
         return [
@@ -92,7 +92,7 @@ def test_verify_file_detects_extension_mismatch() -> None:
 
     def fake_query(vql: str, **kwargs: object) -> list[dict[str, object]]:
         if "clients(" in vql:
-            return [{"client_id": "C.1111"}]
+            return [{"client_id": "C.1111", "hostname": "PC-01"}]
         if "collect_client(" in vql:
             return [{"Result": {"FlowId": "F.ABC"}}]
         return [{"SourceFile": "x", "FileSize": len(content), "SourceFileSha256": expected_sha256}]
@@ -117,7 +117,7 @@ def test_verify_file_raises_on_hash_mismatch() -> None:
 
     def fake_query(vql: str, **kwargs: object) -> list[dict[str, object]]:
         if "clients(" in vql:
-            return [{"client_id": "C.1111"}]
+            return [{"client_id": "C.1111", "hostname": "PC-01"}]
         if "collect_client(" in vql:
             return [{"Result": {"FlowId": "F.ABC"}}]
         return [{"SourceFile": "x", "FileSize": 1, "SourceFileSha256": "0" * 64}]

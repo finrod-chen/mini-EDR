@@ -64,13 +64,35 @@ class ClientNotFoundError(Exception):
     """指定的 hostname 在 Velociraptor 裡找不到對應的 client_id。"""
 
 
+_RESOLVE_CLIENT_VQL = """
+SELECT client_id, os_info.hostname AS hostname
+FROM clients(search=Search)
+"""
+
+
 def resolve_client_id(hostname: str) -> str:
-    rows = velociraptor_client.query(
-        "SELECT client_id FROM clients(search=Hostname) LIMIT 1", Hostname=hostname
-    )
-    if not rows:
-        raise ClientNotFoundError(f"找不到 hostname={hostname} 對應的 Velociraptor client")
-    return str(rows[0]["client_id"])
+    """把 alert.host(可能是 FQDN,例如 sync_sysmon_events 寫入的值)解析成
+
+    Velociraptor 的 client_id。
+
+    實機測試發現 Velociraptor `clients()` 的 `host:` 搜尋索引**只收錄短
+    主機名,不含 FQDN**——直接拿完整 FQDN 去查會查不到任何結果,即使
+    client 確實存在(2026-09-09 用 G60010.ad.xiyuebiomed.com.tw 撞到,
+    查 `host:g60010.ad.xiyuebiomed.com.tw*` 沒有資料,查 `host:G60010*`
+    才找得到)。
+
+    所以這裡先取 FQDN 的短主機名部分(第一個 `.` 之前)做萬用字元搜尋撈出
+    候選清單,再用不分大小寫的精確比對過濾——只用萬用字元查完就直接
+    `LIMIT 1` 不安全,主機名前綴重疊時(例如 PC1 vs PC10)可能誤判成別台
+    機器,對隔離主機/砍進程這種高風險動作來說後果嚴重,不能省略這一步
+    過濾。
+    """
+    short_hostname = hostname.split(".", 1)[0]
+    rows = velociraptor_client.query(_RESOLVE_CLIENT_VQL, Search=f"host:{short_hostname}*")
+    for row in rows:
+        if str(row.get("hostname") or "").lower() == short_hostname.lower():
+            return str(row["client_id"])
+    raise ClientNotFoundError(f"找不到 hostname={hostname} 對應的 Velociraptor client")
 
 
 def _result_to_json(rows: list[dict[str, object]]) -> str:

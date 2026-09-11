@@ -674,6 +674,12 @@ table.data-table {
   gap: 4px;
   font-size: 0.8125rem;
   font-weight: 500;
+  /* 父層 td 有 overflow-wrap: anywhere(見上面 .data-table td 的說明,是為了
+     長路徑/JSON 字串設的),中文字本來就能逐字斷行不受影響,但英文單字
+     (例如「Agent」「printer」這類 monitor_type/device_type 標籤)會被
+     這條規則從中間硬拆開,例如斷成「Agen」/「t」兩行,很醜。pill 內容都是
+     短標籤,不需要斷行,直接鎖 nowrap——跟 .badge 的既有寫法一致。 */
+  white-space: nowrap;
 }
 
 .pill--danger {

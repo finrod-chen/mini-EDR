@@ -54,11 +54,20 @@ services:
       # `uv run` 開發用的 localhost。
       DATABASE_URL: postgresql+psycopg://mini_edr:mini_edr@db:5432/mini_edr
       VELOCIRAPTOR_API_CONFIG_PATH: /velociraptor/api_client.yaml
+      # app/core/config.py 的預設值 `../deploy/snmp/snmp_targets.json` 是給本機
+      # `uv run`(cwd 是 backend/)用的相對路徑,容器裡的 cwd 是 /app,同一個
+      # 相對路徑解析不到,一定要在這裡蓋成容器內實際掛載的絕對路徑——跟下面
+      # VELOCIRAPTOR_API_CONFIG_PATH 蓋掉預設值的道理一樣。
+      SNMP_TARGETS_CONFIG_PATH: /snmp/snmp_targets.json
     volumes:
       # 見 deploy/velociraptor/README.md 第 6 節產生的 api_client.yaml,
       # 這個檔案不存在的話 backend 起得來但 Velociraptor 相關功能(資產同步、
       # 事件同步、隔離主機/砍進程)都會失敗。
       - ./deploy/velociraptor/etc/api_client.yaml:/velociraptor/api_client.yaml:ro
+      # SNMP 監控目標清單(印表機/NAS/防火牆等,見 deploy/snmp/snmp_targets.example.json
+      # 的格式範本)。這個檔案不存在的話 sync_snmp_assets 排程會直接
+      # FileNotFoundError,但不影響其他功能。
+      - ./deploy/snmp/snmp_targets.json:/snmp/snmp_targets.json:ro
     ports:
       # 8000 已經被 velociraptor-server 的 client 連線埠佔用,backend 對外
       # 開 8080。

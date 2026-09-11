@@ -46,6 +46,34 @@ class Settings(BaseSettings):
     snmp_timeout_seconds: float = 3.0
     snmp_retries: int = 1
 
+    # PA-410 syslog 掃描偵測 + 人工一鍵封鎖(見 app/services/syslog_listener.py
+    # /firewall_scan_detector.py/pan_os_remediation.py)。只有這一台防火牆
+    # 需要,不是通用 syslog 收集平台。
+    #
+    # 監聽 port 故意不用特權的 514(容器內不用 root 就能 bind),PA-410 端
+    # 的 syslog server profile 要設定送到這個 port。
+    syslog_listen_host: str = "0.0.0.0"
+    syslog_listen_port: int = 5514
+    # PAN-OS User-ID API(封鎖動作用)。管理介面通常是自簽憑證,內網限定,
+    # 跟這個專案既有的「沒有密碼/憑證加密基礎設施」立場一致,不為此新增
+    # TLS 驗證機制。
+    panos_api_base_url: str = "https://192.168.2.200"
+    panos_api_key: str = ""
+    panos_api_verify_tls: bool = False
+    # 封鎖時打的 tag,必須跟 PA-410 上 Dynamic Address Group 比對的 tag
+    # 完全一致(防火牆端的一次性設定,不是這裡的程式碼範圍)。
+    panos_block_tag: str = "mini-edr-blocked"
+    # 即時掃描偵測門檻,走 Settings 不寫死常數——上線後很可能要依實際流量
+    # 調整,不用改程式碼重新 build(比照 app/rules/definitions.py 對規則
+    # 門檻值「預期之後要調」的既有態度)。
+    syslog_port_scan_threshold: int = 15
+    syslog_port_scan_window_seconds: int = 60
+    syslog_host_sweep_threshold: int = 15
+    syslog_host_sweep_window_seconds: int = 60
+    # 記憶體內的來源 IP 追蹤狀態,超過這個秒數沒有新活動就清掉,避免無限
+    # 累積。
+    syslog_state_ttl_seconds: int = 300
+
     # AI Alert Explain(Phase 6,選配,見 app/services/ai_explain.py)。
     # 走 OpenAI-compatible 的 /chat/completions REST 介面,不綁定特定供應商
     # ——只要目標端點相容這個介面規格(OpenAI 本身、Azure OpenAI、內部自架的

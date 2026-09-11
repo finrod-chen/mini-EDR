@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.core.auth import UserSession, get_current_user
+from app.core.config import settings
 from app.core.db import get_db
 from app.main import app
 from app.models.alert import Alert
@@ -17,7 +18,7 @@ from app.models.base import Base
 from app.models.events import ProcessEvent
 from app.models.response_action import ResponseAction
 from app.models.user import ADMIN_ROLE, VIEWER_ROLE
-from app.services import file_verification, velociraptor_remediation
+from app.services import file_verification, pan_os_remediation, velociraptor_remediation
 
 
 @pytest.fixture
@@ -160,6 +161,55 @@ def test_quarantine_failure_is_recorded_but_alert_stays_open(
     ):
         response = admin_client.post(
             f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "quarantine"}
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result"].startswith("failed:")
+    session.refresh(alert)
+    assert alert.status == "open"
+
+
+def test_block_firewall_ip_without_host_is_rejected(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session, host=None)
+    response = admin_client.post(
+        f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "block_firewall_ip"}
+    )
+    assert response.status_code == 422
+
+
+def test_block_firewall_ip_success_calls_pan_os_and_acknowledges(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session, host="1.2.3.4")
+    with patch.object(
+        pan_os_remediation, "block_ip", return_value='<response status="success"/>'
+    ) as mocked:
+        response = admin_client.post(
+            f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "block_firewall_ip"}
+        )
+
+    assert response.status_code == 200
+    mocked.assert_called_once_with("1.2.3.4", settings.panos_block_tag)
+    session.refresh(alert)
+    assert alert.status == "acknowledged"
+    body = response.json()
+    assert "success" in body["result"]
+
+
+def test_block_firewall_ip_failure_is_recorded_but_alert_stays_open(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session, host="1.2.3.4")
+    with patch.object(
+        pan_os_remediation,
+        "block_ip",
+        side_effect=pan_os_remediation.PanOsApiError("boom"),
+    ):
+        response = admin_client.post(
+            f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "block_firewall_ip"}
         )
 
     assert response.status_code == 200

@@ -12,12 +12,15 @@ from app.api.health import router as health_router
 from app.api.response_actions import router as response_actions_router
 from app.core.config import settings
 from app.jobs import scheduler
+from app.services import syslog_listener
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     scheduler.start()
+    syslog_listener.start()
     yield
+    syslog_listener.stop()
     scheduler.shutdown()
 
 

@@ -13,11 +13,12 @@ from sqlalchemy.orm import Session
 
 from app.api.response_actions import ResponseActionOut, to_response_action_out
 from app.core.auth import UserSession, get_current_user, require_admin
+from app.core.config import settings
 from app.core.db import get_db
 from app.models.alert import Alert
 from app.models.events import ProcessEvent
 from app.models.response_action import ResponseAction
-from app.services import ai_explain, file_verification, velociraptor_remediation
+from app.services import ai_explain, file_verification, pan_os_remediation, velociraptor_remediation
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -79,7 +80,14 @@ def get_related_events(
     return ai_explain.find_related_process_events(db, alert)
 
 
-ActionType = Literal["quarantine", "kill_process", "ignore", "mark_false_positive", "verify_file"]
+ActionType = Literal[
+    "quarantine",
+    "kill_process",
+    "ignore",
+    "mark_false_positive",
+    "verify_file",
+    "block_firewall_ip",
+]
 
 # ignore/mark_false_positive 直接改狀態就好,不用呼叫 Velociraptor。
 # quarantine/kill_process 才是真的高風險動作(見 require_admin)。
@@ -103,7 +111,10 @@ def perform_action(
     if alert is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
 
-    if body.action_type in ("quarantine", "kill_process", "verify_file") and not alert.host:
+    if (
+        body.action_type in ("quarantine", "kill_process", "verify_file", "block_firewall_ip")
+        and not alert.host
+    ):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "alert 沒有 host,無法執行")
     if body.action_type == "kill_process" and body.pid is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "kill_process 需要指定 pid")
@@ -127,11 +138,21 @@ def perform_action(
             assert body.file_path is not None
             classification = file_verification.verify_file(alert.host, body.file_path)
             result = json.dumps(vars(classification), ensure_ascii=False, default=str)
+        elif body.action_type == "block_firewall_ip":
+            # alert.host 對 PA-410 syslog 觸發的告警來說就是攻擊來源 IP
+            # (見 app/services/syslog_listener.py),不需要額外的 request
+            # body 欄位帶目標——跟 quarantine/kill_process 一樣直接用
+            # alert.host。
+            assert alert.host is not None
+            result = pan_os_remediation.block_ip(alert.host, settings.panos_block_tag)
+            new_status = "acknowledged"
         else:
             # ignore / mark_false_positive:不呼叫 Velociraptor,純粹改狀態。
             result = "ok"
             new_status = _STATUS_BY_LOCAL_ACTION[body.action_type]
     except velociraptor_remediation.ClientNotFoundError as exc:
+        result = f"failed: {exc}"
+    except pan_os_remediation.PanOsApiError as exc:
         result = f"failed: {exc}"
     except Exception as exc:  # noqa: BLE001
         # Velociraptor 呼叫失敗要記錄進稽核軌跡(下面的 ResponseAction),

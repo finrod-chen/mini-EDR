@@ -11,7 +11,13 @@ export interface Alert {
   created_at: string | null
 }
 
-export type ActionType = 'quarantine' | 'kill_process' | 'ignore' | 'mark_false_positive' | 'verify_file'
+export type ActionType =
+  | 'quarantine'
+  | 'kill_process'
+  | 'ignore'
+  | 'mark_false_positive'
+  | 'verify_file'
+  | 'block_firewall_ip'
 
 export interface FileClassification {
   declared_path: string

@@ -206,6 +206,28 @@ def test_list_assets_includes_snmp_fields(client: TestClient, session: Session) 
     assert body[0]["snmp_last_poll_ok"] is True
 
 
+def test_list_assets_includes_snmp_metric_fields(client: TestClient, session: Session) -> None:
+    session.add(
+        AssetInventory(
+            monitor_type="snmp",
+            ip="10.0.0.6",
+            hostname="MFP-4F",
+            device_type="printer",
+            snmp_metric_data=[{"label": "Black Toner", "value": "8%"}],
+            snmp_metric_alert="碳粉/耗材偏低(Black Toner 8%)",
+        )
+    )
+    session.commit()
+
+    response = client.get("/api/assets")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["snmp_metric_data"] == [{"label": "Black Toner", "value": "8%"}]
+    assert body[0]["snmp_metric_alert"] == "碳粉/耗材偏低(Black Toner 8%)"
+    assert body[0]["health_score"] == 85
+
+
 def test_list_asset_software_returns_only_matching_asset(
     client: TestClient, session: Session
 ) -> None:

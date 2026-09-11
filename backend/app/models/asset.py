@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import TIMESTAMP, BigInteger, Boolean, ForeignKey, Text, Uuid
+from sqlalchemy import JSON, TIMESTAMP, BigInteger, Boolean, ForeignKey, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -47,6 +47,17 @@ class AssetInventory(Base):
     snmp_uptime_seconds: Mapped[int | None] = mapped_column(BigInteger)
     snmp_last_poll_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     snmp_last_poll_ok: Mapped[bool | None] = mapped_column(Boolean)
+    # Phase 2:裝置類型專屬指標(印表機碳粉/NAS 磁碟/防火牆介面),見
+    # app/jobs/sync_snmp_assets.py 的 _collect_*_metrics()。三種裝置類型統一
+    # 用同一種 [{"label": ..., "value": ...}, ...] 形狀存進 snmp_metric_data,
+    # 前端可以用同一套 Label/Value 清單渲染,不用依裝置類型分別刻 UI。
+    # snmp_metric_alert 只有命中門檻(碳粉過低/磁碟過高/介面異常)時才非
+    # NULL,同時餵給健康分數扣分(見 health_score.py)與前端顯示,一次輪詢
+    # 抓到的多個異常併成一句話,不做多筆告警的資料結構。table walk 失敗或
+    # 逾時不影響 MIB-II 判定的 snmp_last_poll_ok,也不清空這兩欄的舊值,
+    # 邏輯跟 snmp_sys_descr 等欄位的「輪詢失敗保留上次成功值」一致。
+    snmp_metric_data: Mapped[list[dict[str, str]] | None] = mapped_column(JSON)
+    snmp_metric_alert: Mapped[str | None] = mapped_column(Text)
 
 
 class SoftwareInventory(Base):

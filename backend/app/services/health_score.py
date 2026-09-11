@@ -32,6 +32,10 @@ STALE_LAST_SEEN_PENALTY = 10
 # 失敗代表「現在就連不上」,比被動等 30 天沒回報(STALE_LAST_SEEN_PENALTY)
 # 更嚴重、更即時的訊號,扣分也重一些。
 SNMP_OFFLINE_PENALTY = 30
+# Phase 2:裝置類型專屬指標異常(碳粉偏低/磁碟過高/介面異常,見
+# app/jobs/sync_snmp_assets.py 的 snmp_metric_alert)。比完全離線(30 分)
+# 輕——裝置還連得上,只是某個指標超標,嚴重度低於「完全連不上」。
+SNMP_METRIC_ALERT_PENALTY = 15
 
 
 @dataclass
@@ -88,6 +92,12 @@ def _calculate_snmp_health_score_breakdown(asset: AssetInventory) -> list[Health
         deductions.append(
             HealthScoreDeduction("SNMP 輪詢失敗(裝置離線或無回應)", SNMP_OFFLINE_PENALTY)
         )
+
+    # 跟上面的離線判斷不是互斥關係:裝置這次雖然離線,但 snmp_metric_alert
+    # 可能還留著上次成功輪詢時偵測到的異常(見 sync_snmp_assets.py「輪詢
+    # 失敗不清空 metric 舊值」的設計),兩個扣分項目可以同時出現。
+    if asset.snmp_metric_alert:
+        deductions.append(HealthScoreDeduction(asset.snmp_metric_alert, SNMP_METRIC_ALERT_PENALTY))
 
     stale = _stale_last_seen_deduction(asset)
     if stale is not None:

@@ -253,7 +253,7 @@ export function AssetManagement() {
                           <td colSpan={9}>
                             <div className="detail-panel">
                               {asset.monitor_type === 'snmp' ? (
-                                <dl className="text-muted">
+                                <div className="text-muted">
                                   <div>
                                     <strong>sysDescr:</strong> {asset.snmp_sys_descr ?? '-'}
                                   </div>
@@ -267,7 +267,31 @@ export function AssetManagement() {
                                     <strong>最後輪詢:</strong>{' '}
                                     {asset.snmp_last_poll_ok === false ? '失敗(裝置離線或無回應)' : '成功'}
                                   </div>
-                                </dl>
+                                  {asset.snmp_metric_alert && (
+                                    <div style={{ marginTop: 8 }}>
+                                      <span className="pill pill--danger">{asset.snmp_metric_alert}</span>
+                                    </div>
+                                  )}
+                                  {asset.snmp_metric_data && asset.snmp_metric_data.length > 0 && (
+                                    <table className="data-table" style={{ marginTop: 12 }}>
+                                      <thead>
+                                        <tr>
+                                          <th>項目</th>
+                                          <th>數值</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {asset.snmp_metric_data.map((item, i) => (
+                                          // eslint-disable-next-line react/no-array-index-key -- metric 沒有唯一 id 可用
+                                          <tr key={i}>
+                                            <td>{item.label}</td>
+                                            <td>{item.value}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </div>
                               ) : !software[asset.asset_id] ? (
                                 <div className="state-message" style={{ padding: 0 }}>
                                   <span className="spinner" />

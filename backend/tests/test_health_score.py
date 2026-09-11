@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from app.models.asset import AssetInventory
-from app.services.health_score import calculate_health_score_breakdown
+from app.services.health_score import HealthScoreDeduction, calculate_health_score_breakdown
 
 _STALE = datetime.now(UTC) - timedelta(days=31)
 
@@ -63,3 +63,31 @@ def test_null_monitor_type_treated_as_velociraptor() -> None:
     breakdown = calculate_health_score_breakdown(asset)
 
     assert any("作業系統過舊" in d.reason for d in breakdown)
+
+
+def test_snmp_asset_metric_alert_deduction() -> None:
+    asset = AssetInventory(
+        monitor_type="snmp",
+        snmp_last_poll_ok=True,
+        snmp_metric_alert="碳粉/耗材偏低(Black Toner 8%)",
+    )
+
+    breakdown = calculate_health_score_breakdown(asset)
+
+    assert breakdown == [HealthScoreDeduction("碳粉/耗材偏低(Black Toner 8%)", 15)]
+
+
+def test_snmp_asset_offline_and_metric_alert_both_apply() -> None:
+    # 裝置這次離線,但 snmp_metric_alert 可能還留著上次成功輪詢偵測到的
+    # 異常(sync_snmp_assets.py 的設計:輪詢失敗不清空 metric 舊值)——
+    # 兩個扣分項目該同時出現,不是互斥的。
+    asset = AssetInventory(
+        monitor_type="snmp",
+        snmp_last_poll_ok=False,
+        snmp_metric_alert="介面異常(eth1)",
+    )
+
+    breakdown = calculate_health_score_breakdown(asset)
+
+    total = sum(d.points for d in breakdown)
+    assert total == 45  # 30(離線) + 15(指標異常)

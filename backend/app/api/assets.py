@@ -41,6 +41,8 @@ class AssetOut(BaseModel):
     snmp_sys_descr: str | None
     snmp_uptime_seconds: int | None
     snmp_last_poll_ok: bool | None
+    snmp_metric_data: list[dict[str, str]] | None
+    snmp_metric_alert: str | None
     health_score: int
     health_score_breakdown: list[HealthScoreDeductionOut]
 
@@ -74,6 +76,8 @@ def _to_asset_out(asset: AssetInventory) -> AssetOut:
         snmp_sys_descr=asset.snmp_sys_descr,
         snmp_uptime_seconds=asset.snmp_uptime_seconds,
         snmp_last_poll_ok=asset.snmp_last_poll_ok,
+        snmp_metric_data=asset.snmp_metric_data,
+        snmp_metric_alert=asset.snmp_metric_alert,
         health_score=max(100 - sum(d.points for d in breakdown), 0),
         health_score_breakdown=[
             HealthScoreDeductionOut(reason=d.reason, points=d.points) for d in breakdown

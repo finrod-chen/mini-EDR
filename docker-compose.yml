@@ -72,6 +72,10 @@ services:
       # 8000 已經被 velociraptor-server 的 client 連線埠佔用,backend 對外
       # 開 8080。
       - "8080:8000"
+      # PA-410 syslog 掃描偵測用的 UDP 監聽埠(見 app/services/syslog_listener.py),
+      # 要跟 PA-410 上 syslog server profile 設定的目的 port 一致、跟
+      # SYSLOG_LISTEN_PORT(.env)一致。UDP,不是 TCP。
+      - "5514:5514/udp"
     depends_on:
       db:
         condition: service_healthy

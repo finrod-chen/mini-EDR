@@ -60,7 +60,38 @@ def test_host_sweep_triggers_at_threshold() -> None:
     assert result is not None
     reason, kind = result
     assert kind == "host_sweep"
-    assert "5 台不同主機" in reason
+    assert "5 台不同內網主機" in reason
+
+
+def test_host_sweep_ignores_external_destinations() -> None:
+    # 實機上線後的真實誤判:一般上網瀏覽在 60 秒內連到十幾個不同的外部 IP
+    # 很正常(CDN/廣告/雲端服務各自不同 IP),不該被當成內網橫向掃描。
+    detector = make_detector(host_sweep_threshold=5, port_scan_threshold=1000)
+    result = None
+    for i in range(10):
+        result = detector.record_traffic(
+            src_ip="192.168.2.50", dst_ip=f"93.184.216.{i}", dst_port=443, now=_BASE
+        )
+    assert result is None
+
+
+def test_host_sweep_still_triggers_on_private_destinations_mixed_with_external() -> None:
+    detector = make_detector(host_sweep_threshold=5, port_scan_threshold=1000)
+    # 先來一堆外部流量(不該累積計數)。
+    for i in range(10):
+        detector.record_traffic(
+            src_ip="192.168.2.50", dst_ip=f"93.184.216.{i}", dst_port=443, now=_BASE
+        )
+    # 再來真的內網掃描,應該正常觸發,不受前面外部流量影響。
+    result = None
+    for i in range(5):
+        result = detector.record_traffic(
+            src_ip="192.168.2.50", dst_ip=f"192.168.2.{i}", dst_port=445, now=_BASE
+        )
+    assert result is not None
+    reason, kind = result
+    assert kind == "host_sweep"
+    assert "5 台不同內網主機" in reason
 
 
 def test_port_scan_and_host_sweep_are_independent_per_source() -> None:

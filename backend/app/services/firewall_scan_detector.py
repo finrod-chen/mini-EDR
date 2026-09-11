@@ -7,14 +7,27 @@ sync_snmp_assets.py 已經用過的「注入時間/結果方便測試」慣例�
 
 三個偵測路徑對應使用者確認的範圍:
 - port scan:同一來源 IP 在時間視窗內連到過多不同目的連接埠
-- host sweep:同一來源 IP 在時間視窗內連到過多不同目的主機
+- host sweep:同一來源 IP 在時間視窗內連到過多不同「內網」目的主機
 - Threat log 掃描特徵:PAN-OS 自己的 threat 引擎已經把某個連線標成
   subtype="scan",直接信任這個判斷、立即觸發,不需要累積視窗——這是
   簽章比對出來的結果,不是我們自己發明的門檻式判斷。
+
+host sweep 刻意只算目的地是私有位址(RFC1918,`ipaddress.ip_address(...).is_private`)
+的連線——這是實機上線後第一批告警就抓到的真實誤判:一般上網瀏覽在
+60 秒內輕鬆連到十幾個不同的外部 IP(CDN、廣告/分析網域、雲端服務各自
+不同 IP),遠比真的內網橫向掃描更容易踩到「連到 N 個不同主機」這個門檻,
+造成幾乎每個一般上網的內網工作站都被誤判成「疑似主機掃描」。host sweep
+這個判斷的威脅情境本來就是「內網偵察/橫向移動」,只算內網目的地才符合
+這個情境,也直接排除掉外部流量這個雜訊來源。
+
+port scan(同一目的地、掃很多不同 port)沒有這個問題——一般流量很少會
+在一分鐘內對同一台主機(不管內網外網)打十幾個不同 port,先不做同樣的
+內網限制,之後如果實測發現有類似的誤判來源再處理。
 """
 
 from __future__ import annotations
 
+import ipaddress
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -30,6 +43,15 @@ class _SourceState:
     ports: deque[tuple[datetime, int]] = field(default_factory=deque)
     dests: deque[tuple[datetime, str]] = field(default_factory=deque)
     last_seen: datetime | None = None
+
+
+def _is_private_destination(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip).is_private
+    except ValueError:
+        # 解析不出來的目的地(理論上不該發生,PAN-OS 一定給合法 IP)寧可
+        # 不計入 host sweep 判斷,不要因為一筆壞資料誤觸發告警。
+        return False
 
 
 def _severity_from_panos(raw: str) -> str:
@@ -106,14 +128,15 @@ class ScanDetector:
             reason = f"{window_seconds} 秒內掃描 {len(distinct_ports)} 個不同連接埠"
             return reason, "port_scan"
 
-        state.dests.append((now, dst_ip))
+        if _is_private_destination(dst_ip):
+            state.dests.append((now, dst_ip))
         dest_cutoff = now - self._host_sweep_window
         while state.dests and state.dests[0][0] < dest_cutoff:
             state.dests.popleft()
         distinct_dests = {d for _, d in state.dests}
         if len(distinct_dests) >= self._host_sweep_threshold:
             window_seconds = int(self._host_sweep_window.total_seconds())
-            reason = f"{window_seconds} 秒內掃描 {len(distinct_dests)} 台不同主機"
+            reason = f"{window_seconds} 秒內掃描 {len(distinct_dests)} 台不同內網主機"
             return reason, "host_sweep"
 
         return None

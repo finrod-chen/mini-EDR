@@ -6,23 +6,29 @@ Threat log 掃描特徵)。純邏輯、無 I/O——不呼叫 SNMP/DB/網路,方
 sync_snmp_assets.py 已經用過的「注入時間/結果方便測試」慣例。
 
 三個偵測路徑對應使用者確認的範圍:
-- port scan:同一來源 IP 在時間視窗內連到過多不同目的連接埠
+- port scan:同一來源 IP 在時間視窗內對「同一個目的主機」連到過多不同
+  連接埠
 - host sweep:同一來源 IP 在時間視窗內連到過多不同「內網」目的主機
 - Threat log 掃描特徵:PAN-OS 自己的 threat 引擎已經把某個連線標成
   subtype="scan",直接信任這個判斷、立即觸發,不需要累積視窗——這是
   簽章比對出來的結果,不是我們自己發明的門檻式判斷。
 
-host sweep 刻意只算目的地是私有位址(RFC1918,`ipaddress.ip_address(...).is_private`)
-的連線——這是實機上線後第一批告警就抓到的真實誤判:一般上網瀏覽在
-60 秒內輕鬆連到十幾個不同的外部 IP(CDN、廣告/分析網域、雲端服務各自
-不同 IP),遠比真的內網橫向掃描更容易踩到「連到 N 個不同主機」這個門檻,
-造成幾乎每個一般上網的內網工作站都被誤判成「疑似主機掃描」。host sweep
-這個判斷的威脅情境本來就是「內網偵察/橫向移動」,只算內網目的地才符合
-這個情境,也直接排除掉外部流量這個雜訊來源。
+這兩個門檻式判斷(port scan / host sweep)都是實機上線後第一批真實流量
+就抓到誤判、修正過的:
 
-port scan(同一目的地、掃很多不同 port)沒有這個問題——一般流量很少會
-在一分鐘內對同一台主機(不管內網外網)打十幾個不同 port,先不做同樣的
-內網限制,之後如果實測發現有類似的誤判來源再處理。
+- host sweep 刻意只算目的地是私有位址(RFC1918,
+  `ipaddress.ip_address(...).is_private`)的連線——一般上網瀏覽在 60 秒內
+  輕鬆連到十幾個不同的外部 IP(CDN、廣告/分析網域、雲端服務各自不同
+  IP),遠比真的內網橫向掃描更容易踩到「連到 N 個不同主機」這個門檻。
+  host sweep 的威脅情境本來就是「內網偵察/橫向移動」,只算內網目的地
+  才符合情境,也直接排除外部流量這個雜訊來源。
+- port scan 一開始的實作是「這個來源 IP 在視窗內連過幾個不同 port 數值,
+  不分是對哪個目的地」——這樣一台工作站在一分鐘內正常存取好幾個不同的
+  內部服務(例如印表機 9100、檔案伺服器 445、某個內部網頁 8080,各自
+  不同主機各自不同 port)就會被誤判成「連接埠掃描」,但這根本不是掃描:
+  真正的 port scan 定義是「對『同一個』目的主機打很多不同 port」,不是
+  「累計連過的相異 port 種類很多」。現在改成以目的地 IP 為單位分開累計,
+  只有同一個目的地底下的相異 port 數量達門檻才觸發。
 """
 
 from __future__ import annotations
@@ -40,7 +46,10 @@ _EVICTION_CHECK_INTERVAL = timedelta(seconds=60)
 
 @dataclass
 class _SourceState:
-    ports: deque[tuple[datetime, int]] = field(default_factory=deque)
+    # 以目的地 IP 分開累計連過的 port——port scan 是「對同一台主機打很多
+    # 不同 port」,不是「今天累計連過的 port 種類很多」(後者是任何正常
+    # 使用者存取多個不同服務就會發生的事)。
+    ports_by_dest: dict[str, deque[tuple[datetime, int]]] = field(default_factory=dict)
     dests: deque[tuple[datetime, str]] = field(default_factory=deque)
     last_seen: datetime | None = None
 
@@ -118,15 +127,21 @@ class ScanDetector:
         self._evict_stale(now)
         state = self._get_state(src_ip, now)
 
-        state.ports.append((now, dst_port))
+        port_deque = state.ports_by_dest.setdefault(dst_ip, deque())
+        port_deque.append((now, dst_port))
         port_cutoff = now - self._port_scan_window
-        while state.ports and state.ports[0][0] < port_cutoff:
-            state.ports.popleft()
-        distinct_ports = {p for _, p in state.ports}
-        if len(distinct_ports) >= self._port_scan_threshold:
-            window_seconds = int(self._port_scan_window.total_seconds())
-            reason = f"{window_seconds} 秒內掃描 {len(distinct_ports)} 個不同連接埠"
-            return reason, "port_scan"
+        while port_deque and port_deque[0][0] < port_cutoff:
+            port_deque.popleft()
+        if not port_deque:
+            # 這個目的地在視窗內已經沒有活動了,清掉這個 key——避免長時間
+            # 運行下,每個曾經聯絡過的目的地都留一個空 deque 慢慢累積。
+            del state.ports_by_dest[dst_ip]
+        else:
+            distinct_ports = {p for _, p in port_deque}
+            if len(distinct_ports) >= self._port_scan_threshold:
+                window_seconds = int(self._port_scan_window.total_seconds())
+                reason = f"{window_seconds} 秒內對 {dst_ip} 掃描 {len(distinct_ports)} 個不同連接埠"
+                return reason, "port_scan"
 
         if _is_private_destination(dst_ip):
             state.dests.append((now, dst_ip))

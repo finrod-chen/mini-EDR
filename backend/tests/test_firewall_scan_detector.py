@@ -49,6 +49,50 @@ def test_port_scan_window_expiry_resets_count() -> None:
     assert result is None
 
 
+def test_port_scan_reason_includes_destination() -> None:
+    detector = make_detector(port_scan_threshold=3)
+    result = None
+    for port in range(1, 4):
+        result = detector.record_traffic(
+            src_ip="1.2.3.4", dst_ip="10.0.0.1", dst_port=port, now=_BASE
+        )
+    assert result is not None
+    reason, _ = result
+    assert "10.0.0.1" in reason
+
+
+def test_port_scan_does_not_trigger_across_different_destinations() -> None:
+    # 實機上線後的真實誤判:一台工作站在一分鐘內正常存取好幾個不同的
+    # 內部服務(各自不同主機、各自不同 port),不該被當成對單一目標的
+    # 連接埠掃描——真正的 port scan 定義是同一個目的地被打很多不同 port。
+    detector = make_detector(port_scan_threshold=5, host_sweep_threshold=1000)
+    result = None
+    for i in range(10):
+        result = detector.record_traffic(
+            src_ip="192.168.2.50", dst_ip=f"192.168.2.{100 + i}", dst_port=1000 + i, now=_BASE
+        )
+    assert result is None
+
+
+def test_port_scan_still_triggers_when_mixed_with_other_destinations() -> None:
+    detector = make_detector(port_scan_threshold=5, host_sweep_threshold=1000)
+    # 先存取幾個不同的內部服務(各自不同主機、各自不同 port),不該累積。
+    for i in range(10):
+        detector.record_traffic(
+            src_ip="192.168.2.50", dst_ip=f"192.168.2.{100 + i}", dst_port=1000 + i, now=_BASE
+        )
+    # 再對同一個目標打很多不同 port,應該正常觸發。
+    result = None
+    for port in range(1, 6):
+        result = detector.record_traffic(
+            src_ip="192.168.2.50", dst_ip="192.168.2.200", dst_port=port, now=_BASE
+        )
+    assert result is not None
+    reason, kind = result
+    assert kind == "port_scan"
+    assert "192.168.2.200" in reason
+
+
 def test_host_sweep_triggers_at_threshold() -> None:
     detector = make_detector(host_sweep_threshold=5, port_scan_threshold=1000)
     result = None

@@ -36,6 +36,11 @@ class AssetOut(BaseModel):
     defender_last_scan: datetime | None
     defender_signature_date: datetime | None
     last_seen: datetime | None
+    monitor_type: str | None
+    device_type: str | None
+    snmp_sys_descr: str | None
+    snmp_uptime_seconds: int | None
+    snmp_last_poll_ok: bool | None
     health_score: int
     health_score_breakdown: list[HealthScoreDeductionOut]
 
@@ -64,6 +69,11 @@ def _to_asset_out(asset: AssetInventory) -> AssetOut:
         defender_last_scan=asset.defender_last_scan,
         defender_signature_date=asset.defender_signature_date,
         last_seen=asset.last_seen,
+        monitor_type=asset.monitor_type,
+        device_type=asset.device_type,
+        snmp_sys_descr=asset.snmp_sys_descr,
+        snmp_uptime_seconds=asset.snmp_uptime_seconds,
+        snmp_last_poll_ok=asset.snmp_last_poll_ok,
         health_score=max(100 - sum(d.points for d in breakdown), 0),
         health_score_breakdown=[
             HealthScoreDeductionOut(reason=d.reason, points=d.points) for d in breakdown

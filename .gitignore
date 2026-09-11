@@ -18,6 +18,10 @@ deploy/velociraptor/datastore/
 deploy/velociraptor/*.yaml
 !deploy/velociraptor/*.example.yaml
 
+# SNMP 監控目標清單(可能含內部 IP 配置細節,範本除外)
+deploy/snmp/*.json
+!deploy/snmp/*.example.json
+
 # OS
 .DS_Store
 Thumbs.db

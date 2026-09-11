@@ -181,6 +181,31 @@ def test_list_assets_health_score_breakdown_empty_when_no_deductions(
     assert body[0]["health_score_breakdown"] == []
 
 
+def test_list_assets_includes_snmp_fields(client: TestClient, session: Session) -> None:
+    session.add(
+        AssetInventory(
+            monitor_type="snmp",
+            ip="10.0.0.5",
+            hostname="MFP-3F",
+            device_type="printer",
+            snmp_sys_descr="HP LaserJet",
+            snmp_uptime_seconds=12345,
+            snmp_last_poll_ok=True,
+        )
+    )
+    session.commit()
+
+    response = client.get("/api/assets")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["monitor_type"] == "snmp"
+    assert body[0]["device_type"] == "printer"
+    assert body[0]["snmp_sys_descr"] == "HP LaserJet"
+    assert body[0]["snmp_uptime_seconds"] == 12345
+    assert body[0]["snmp_last_poll_ok"] is True
+
+
 def test_list_asset_software_returns_only_matching_asset(
     client: TestClient, session: Session
 ) -> None:

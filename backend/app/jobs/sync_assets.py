@@ -131,7 +131,7 @@ def sync_client_roster(session: Session, rows: list[dict[str, Any]] | None = Non
             select(AssetInventory).where(AssetInventory.hostname == hostname)
         ).scalar_one_or_none()
         if asset is None:
-            asset = AssetInventory(hostname=hostname)
+            asset = AssetInventory(hostname=hostname, monitor_type="velociraptor")
             session.add(asset)
 
         os_version = row.get("os_version")

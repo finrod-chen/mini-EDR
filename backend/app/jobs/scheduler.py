@@ -20,6 +20,7 @@ from app.jobs.sync_assets import (
     sync_software_inventory,
 )
 from app.jobs.sync_defender_events import sync_defender_events
+from app.jobs.sync_snmp_assets import sync_snmp_assets
 from app.jobs.sync_sysmon_events import sync_sysmon_events
 from app.rules.engine import run_all_rules
 
@@ -55,6 +56,10 @@ def _run_sync_sysmon_events() -> None:
 
 def _run_sync_defender_events() -> None:
     _run_with_session("sync_defender_events", sync_defender_events)
+
+
+def _run_sync_snmp_assets() -> None:
+    _run_with_session("sync_snmp_assets", sync_snmp_assets)
 
 
 def _run_purge_old_defender_events() -> None:
@@ -108,6 +113,18 @@ def start() -> None:
         "interval",
         minutes=5,
         id="sync_defender_events",
+        replace_existing=True,
+    )
+    # SNMP 輪詢是輕量的 UDP GET(不像 hunt 要等端點下一次 polling 週期),
+    # 5 分鐘頻率沒問題;offset 2 分鐘避開 t=0 那批(sync_client_roster/
+    # sync_sysmon_events/sync_defender_events)跟 run_all_rules 的 1 分鐘、
+    # sync_software_inventory 的 3 分鐘。
+    scheduler.add_job(
+        _run_sync_snmp_assets,
+        "interval",
+        minutes=5,
+        id="sync_snmp_assets",
+        next_run_time=datetime.now() + timedelta(minutes=2),
         replace_existing=True,
     )
     scheduler.add_job(

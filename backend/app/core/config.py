@@ -29,6 +29,23 @@ class Settings(BaseSettings):
     session_secret_key: str = "dev-only-change-me"
     frontend_origin: str = "http://localhost:5173"
 
+    # SNMP v2c 資產監控(印表機/NAS/防火牆等裝不了 Velociraptor agent 的裝置,
+    # 見 app/jobs/sync_snmp_assets.py)。v2c 是既定環境限制,community string
+    # 明碼傳輸,靠網路區隔(SNMP 只開放給後端主機的來源 IP)緩解,不是這裡能
+    # 解決的問題。
+    #
+    # 監控目標清單(IP/裝置類型)用靜態 JSON 檔案管理,不是 DB 表——裝置數量
+    # 少、極少變動,比照 velociraptor_api_config_path 只存檔案路徑,格式見
+    # deploy/snmp/snmp_targets.example.json。
+    snmp_targets_config_path: str = "../deploy/snmp/snmp_targets.json"
+    # 全域唯一的唯讀 community string,明碼存放——跟 llm_api_key/
+    # google_client_secret 同一個安全假設(這個專案沒有密碼加密基礎設施)。
+    snmp_community: str = ""
+    # 單一裝置 SNMP GET 的逾時秒數與重試次數,裝置沒回應時不能卡住整個
+    # 輪詢流程(見 sync_snmp_assets.py 的 per-target try/except)。
+    snmp_timeout_seconds: float = 3.0
+    snmp_retries: int = 1
+
     # AI Alert Explain(Phase 6,選配,見 app/services/ai_explain.py)。
     # 走 OpenAI-compatible 的 /chat/completions REST 介面,不綁定特定供應商
     # ——只要目標端點相容這個介面規格(OpenAI 本身、Azure OpenAI、內部自架的

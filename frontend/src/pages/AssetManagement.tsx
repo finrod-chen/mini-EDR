@@ -3,7 +3,7 @@ import { LoadingOverlay } from '../components/LoadingOverlay'
 import { apiGet } from '../lib/api'
 import type { Asset, Software } from '../lib/types'
 
-type SortKey = 'hostname' | 'ip' | 'os_version' | 'last_seen' | 'health_score'
+type SortKey = 'hostname' | 'monitor_type' | 'ip' | 'os_version' | 'last_seen' | 'health_score'
 type SortDir = 'asc' | 'desc'
 
 function compareValues(a: string | number | null, b: string | number | null): number {
@@ -17,6 +17,7 @@ function compareValues(a: string | number | null, b: string | number | null): nu
 function sortValue(asset: Asset, key: SortKey): string | number | null {
   if (key === 'health_score') return asset.health_score
   if (key === 'last_seen') return asset.last_seen ? new Date(asset.last_seen).getTime() : null
+  if (key === 'monitor_type') return deviceTypeLabel(asset)
   return asset[key]
 }
 
@@ -29,6 +30,14 @@ function isEol(osVersion: string | null): boolean {
   if (!osVersion) return false
   const lower = osVersion.toLowerCase()
   return KNOWN_EOL_OS_KEYWORDS.some((keyword) => lower.includes(keyword))
+}
+
+// SNMP 監控裝置(印表機/NAS/防火牆)沒有作業系統版本,EOL 這個概念本身
+// 對它們不適用——不能直接用 isEol(null) 的結果(會是 false,顯示「正常」),
+// 那樣會誤導成「這台裝置的 OS 沒過期」,實際上是「這個判斷根本不適用」。
+function deviceTypeLabel(asset: Asset): string {
+  if (asset.monitor_type === 'snmp') return asset.device_type ?? 'SNMP'
+  return 'Agent'
 }
 
 function healthScoreClass(score: number): string {
@@ -68,7 +77,16 @@ export function AssetManagement() {
     const query = search.trim().toLowerCase()
     const filtered = query
       ? assets.filter((asset) =>
-          [asset.hostname, asset.ip, asset.os_version, asset.vendor, asset.model, asset.cpu]
+          [
+            asset.hostname,
+            asset.ip,
+            asset.os_version,
+            asset.vendor,
+            asset.model,
+            asset.cpu,
+            asset.device_type,
+            asset.snmp_sys_descr,
+          ]
             .filter(Boolean)
             .join(' ')
             .toLowerCase()
@@ -90,13 +108,14 @@ export function AssetManagement() {
     </th>
   )
 
-  const toggleExpand = (assetId: string) => {
+  const toggleExpand = (assetId: string, monitorType: Asset['monitor_type']) => {
     if (expanded === assetId) {
       setExpanded(null)
       return
     }
     setExpanded(assetId)
-    if (!software[assetId]) {
+    // SNMP 資產沒有軟體清單概念,不用打這支 API(打了也一定是空陣列)。
+    if (monitorType !== 'snmp' && !software[assetId]) {
       apiGet<Software[]>(`/api/assets/${assetId}/software`)
         .then((data) => setSoftware((prev) => ({ ...prev, [assetId]: data })))
         .catch(() => setSoftware((prev) => ({ ...prev, [assetId]: [] })))
@@ -135,6 +154,7 @@ export function AssetManagement() {
                 <thead>
                   <tr>
                     {sortHeader('hostname', '主機名')}
+                    {sortHeader('monitor_type', '類型')}
                     {sortHeader('ip', 'IP')}
                     {sortHeader('os_version', '作業系統')}
                     <th>型號 / CPU / RAM</th>
@@ -150,15 +170,22 @@ export function AssetManagement() {
                     <Fragment key={asset.asset_id}>
                       <tr className="row">
                         <td>{asset.hostname ?? '-'}</td>
+                        <td>
+                          <span className="pill">{deviceTypeLabel(asset)}</span>
+                        </td>
                         <td className="text-muted">{asset.ip ?? '-'}</td>
                         <td>{asset.os_version ?? '-'}</td>
                         <td className="text-muted">
                           {[asset.vendor, asset.model, asset.cpu, asset.memory].filter(Boolean).join(' / ') || '-'}
                         </td>
                         <td>
-                          <span className={`pill ${isEol(asset.os_version) ? 'pill--danger' : 'pill--success'}`}>
-                            {isEol(asset.os_version) ? '已過期' : '正常'}
-                          </span>
+                          {asset.monitor_type === 'snmp' ? (
+                            <span className="text-muted">-</span>
+                          ) : (
+                            <span className={`pill ${isEol(asset.os_version) ? 'pill--danger' : 'pill--success'}`}>
+                              {isEol(asset.os_version) ? '已過期' : '正常'}
+                            </span>
+                          )}
                         </td>
                         <td>
                           <button
@@ -183,14 +210,21 @@ export function AssetManagement() {
                           {asset.last_seen ? new Date(asset.last_seen).toLocaleString() : '從未回報'}
                         </td>
                         <td>
-                          <button className="btn btn--ghost btn--sm" onClick={() => toggleExpand(asset.asset_id)}>
-                            {expanded === asset.asset_id ? '收合' : '軟體清單'}
+                          <button
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => toggleExpand(asset.asset_id, asset.monitor_type)}
+                          >
+                            {expanded === asset.asset_id
+                              ? '收合'
+                              : asset.monitor_type === 'snmp'
+                                ? 'SNMP 詳細資訊'
+                                : '軟體清單'}
                           </button>
                         </td>
                       </tr>
                       {expandedScore === asset.asset_id && (
                         <tr className="detail-row">
-                          <td colSpan={8}>
+                          <td colSpan={9}>
                             <div className="detail-panel">
                               {asset.health_score_breakdown.length === 0 ? (
                                 <p className="text-muted">沒有扣分項目,滿分 100。</p>
@@ -216,9 +250,25 @@ export function AssetManagement() {
                       )}
                       {expanded === asset.asset_id && (
                         <tr className="detail-row">
-                          <td colSpan={8}>
+                          <td colSpan={9}>
                             <div className="detail-panel">
-                              {!software[asset.asset_id] ? (
+                              {asset.monitor_type === 'snmp' ? (
+                                <dl className="text-muted">
+                                  <div>
+                                    <strong>sysDescr:</strong> {asset.snmp_sys_descr ?? '-'}
+                                  </div>
+                                  <div>
+                                    <strong>Uptime:</strong>{' '}
+                                    {asset.snmp_uptime_seconds != null
+                                      ? `${Math.floor(asset.snmp_uptime_seconds / 3600)} 小時`
+                                      : '-'}
+                                  </div>
+                                  <div>
+                                    <strong>最後輪詢:</strong>{' '}
+                                    {asset.snmp_last_poll_ok === false ? '失敗(裝置離線或無回應)' : '成功'}
+                                  </div>
+                                </dl>
+                              ) : !software[asset.asset_id] ? (
                                 <div className="state-message" style={{ padding: 0 }}>
                                   <span className="spinner" />
                                   載入中…

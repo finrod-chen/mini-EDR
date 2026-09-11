@@ -28,6 +28,10 @@ STALE_LAST_SEEN_DAYS = 30
 OS_EOL_PENALTY = 20
 DEFENDER_DISABLED_PENALTY = 20
 STALE_LAST_SEEN_PENALTY = 10
+# SNMP 輪詢是每 5 分鐘主動戳一次(見 app/jobs/sync_snmp_assets.py),poll
+# 失敗代表「現在就連不上」,比被動等 30 天沒回報(STALE_LAST_SEEN_PENALTY)
+# 更嚴重、更即時的訊號,扣分也重一些。
+SNMP_OFFLINE_PENALTY = 30
 
 
 @dataclass
@@ -36,13 +40,23 @@ class HealthScoreDeduction:
     points: int
 
 
-def calculate_health_score_breakdown(asset: AssetInventory) -> list[HealthScoreDeduction]:
-    """列出實際命中的每一項扣分理由,供資產管理頁面展開明細用。
+def _stale_last_seen_deduction(asset: AssetInventory) -> HealthScoreDeduction | None:
+    """Velociraptor/SNMP 資產共用的「超過 30 天未回報」判斷。"""
+    if asset.last_seen is None:
+        return None
+    last_seen = asset.last_seen
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=UTC)
+    if last_seen < datetime.now(UTC) - timedelta(days=STALE_LAST_SEEN_DAYS):
+        return HealthScoreDeduction(
+            f"超過 {STALE_LAST_SEEN_DAYS} 天未回報", STALE_LAST_SEEN_PENALTY
+        )
+    return None
 
-    起始分數固定 100,不列進 breakdown——UI 端用 100 減掉這裡回傳的
-    points 總和重新算出總分,兩邊資料來源保持一致,不用另外傳一個
-    起始值欄位。
-    """
+
+def _calculate_velociraptor_health_score_breakdown(
+    asset: AssetInventory,
+) -> list[HealthScoreDeduction]:
     deductions: list[HealthScoreDeduction] = []
 
     os_version = (asset.os_version or "").lower()
@@ -58,18 +72,45 @@ def calculate_health_score_breakdown(asset: AssetInventory) -> list[HealthScoreD
             )
         )
 
-    if asset.last_seen is not None:
-        last_seen = asset.last_seen
-        if last_seen.tzinfo is None:
-            last_seen = last_seen.replace(tzinfo=UTC)
-        if last_seen < datetime.now(UTC) - timedelta(days=STALE_LAST_SEEN_DAYS):
-            deductions.append(
-                HealthScoreDeduction(
-                    f"超過 {STALE_LAST_SEEN_DAYS} 天未回報", STALE_LAST_SEEN_PENALTY
-                )
-            )
+    stale = _stale_last_seen_deduction(asset)
+    if stale is not None:
+        deductions.append(stale)
 
     return deductions
+
+
+def _calculate_snmp_health_score_breakdown(asset: AssetInventory) -> list[HealthScoreDeduction]:
+    """SNMP 監控裝置(印表機/NAS/防火牆)的扣分規則,跟 Velociraptor 端點的
+    OS EOL / Defender 規則完全不適用,不共用那組判斷。"""
+    deductions: list[HealthScoreDeduction] = []
+
+    if asset.snmp_last_poll_ok is False:
+        deductions.append(
+            HealthScoreDeduction("SNMP 輪詢失敗(裝置離線或無回應)", SNMP_OFFLINE_PENALTY)
+        )
+
+    stale = _stale_last_seen_deduction(asset)
+    if stale is not None:
+        deductions.append(stale)
+
+    return deductions
+
+
+def calculate_health_score_breakdown(asset: AssetInventory) -> list[HealthScoreDeduction]:
+    """列出實際命中的每一項扣分理由,供資產管理頁面展開明細用。
+
+    依 asset.monitor_type 分派到對應規則集——monitor_type 是 NULL(遷移前
+    的舊資料列,理論上遷移 backfill 後不會再出現,但防禦性處理)或
+    'velociraptor' 一律走既有的 agent 規則,'snmp' 走另一套跟 agent 無關的
+    規則(見 _calculate_snmp_health_score_breakdown)。
+
+    起始分數固定 100,不列進 breakdown——UI 端用 100 減掉這裡回傳的
+    points 總和重新算出總分,兩邊資料來源保持一致,不用另外傳一個
+    起始值欄位。
+    """
+    if asset.monitor_type == "snmp":
+        return _calculate_snmp_health_score_breakdown(asset)
+    return _calculate_velociraptor_health_score_breakdown(asset)
 
 
 def calculate_health_score(asset: AssetInventory) -> int:

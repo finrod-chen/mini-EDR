@@ -14,6 +14,7 @@ dependencies = [
     "magika>=0.6.2",
     "psycopg[binary]>=3.3.5",
     "pydantic-settings>=2.15.0",
+    "pysnmp>=7.1.29",
     "pyvelociraptor>=0.1.14",
     "sqlalchemy>=2.0.52",
     "tzdata>=2025.2",
@@ -72,6 +73,11 @@ ignore_missing_imports = true
 # grpc 官方套件沒有型別標註/py.typed(types-grpc 是社群維護的獨立套件,
 # 沒有另外加進 dev 依賴)。
 module = "grpc.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# pysnmp 沒有型別標註/py.typed。
+module = "pysnmp.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -47,6 +47,9 @@ export interface HealthScoreDeduction {
   points: number
 }
 
+export type MonitorType = 'velociraptor' | 'snmp'
+export type DeviceType = 'printer' | 'nas' | 'firewall' | 'other'
+
 export interface Asset {
   asset_id: string
   hostname: string | null
@@ -60,6 +63,11 @@ export interface Asset {
   defender_last_scan: string | null
   defender_signature_date: string | null
   last_seen: string | null
+  monitor_type: MonitorType | null
+  device_type: DeviceType | null
+  snmp_sys_descr: string | null
+  snmp_uptime_seconds: number | null
+  snmp_last_poll_ok: boolean | null
   health_score: number
   health_score_breakdown: HealthScoreDeduction[]
 }

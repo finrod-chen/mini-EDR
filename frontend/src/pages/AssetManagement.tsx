@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { SkeletonRows } from '../components/SkeletonRows'
+import { LoadingOverlay } from '../components/LoadingOverlay'
 import { apiGet } from '../lib/api'
 import type { Asset, Software } from '../lib/types'
 
@@ -129,7 +129,8 @@ export function AssetManagement() {
           {!loading && visibleAssets.length === 0 ? (
             <p className="text-muted">沒有符合搜尋條件的資產。</p>
           ) : (
-            <div className="table-wrap">
+            <div className={`table-wrap${loading ? ' table-wrap--loading' : ''}`}>
+              {loading && <LoadingOverlay />}
               <table className="data-table">
                 <thead>
                   <tr>
@@ -144,7 +145,6 @@ export function AssetManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {loading && <SkeletonRows columns={8} />}
                   {!loading &&
                     visibleAssets.map((asset) => (
                     <Fragment key={asset.asset_id}>

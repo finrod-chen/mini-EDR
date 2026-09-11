@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
-import { SkeletonRows } from '../components/SkeletonRows'
+import { LoadingOverlay } from '../components/LoadingOverlay'
 import { ApiError, apiGet, apiPost } from '../lib/api'
 import { SEVERITY_ORDER, severityRank } from '../lib/severity'
 import type {
@@ -195,7 +195,8 @@ export function AlertQueue() {
       {!loading && sortedAlerts.length === 0 ? (
         <p className="text-muted">目前沒有符合條件的告警。</p>
       ) : (
-        <div className="table-wrap">
+        <div className={`table-wrap${loading ? ' table-wrap--loading' : ''}`}>
+          {loading && <LoadingOverlay />}
           <table className="data-table">
             <thead>
               <tr>
@@ -208,7 +209,6 @@ export function AlertQueue() {
               </tr>
             </thead>
             <tbody>
-              {loading && <SkeletonRows columns={6} />}
               {!loading &&
                 sortedAlerts.map((alert) => (
                 <Fragment key={alert.alert_id}>

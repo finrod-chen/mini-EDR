@@ -554,11 +554,16 @@ p {
    Table
 ------------------------------------------------------------------------ */
 .table-wrap {
+  position: relative;
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
+}
+
+.table-wrap--loading {
+  min-height: 160px;
 }
 
 table.data-table {
@@ -712,34 +717,29 @@ table.data-table {
   font-size: 0.8125rem;
 }
 
-/* Skeleton rows——資料還在抓的時候,表頭跟工具列先正常顯示,只有 tbody
-   換成會動的骨架列,讓使用者看得出畫面沒有卡住,而不是整頁被 spinner
-   蓋掉(見 ux 指引:async 操作要有進行中的視覺回饋)。 */
-.skeleton {
-  position: relative;
-  overflow: hidden;
-  background: var(--surface-hover);
-  border-radius: var(--radius-sm);
-}
-
-.skeleton::after {
-  content: '';
+/* 蓋板 loading——資料還在抓的時候,表頭/工具列維持原樣,整個表格區域蓋上
+   一層半透明遮罩 + 大一號的旋轉圈,一眼就看得出「後端正在處理」,不是
+   靠不明顯的骨架屏暗示(使用者明確要求要看得到轉圈)。 */
+.loading-overlay {
   position: absolute;
   inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 25%), transparent);
-  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--surface-translucent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  border-radius: inherit;
+  font-size: 0.875rem;
+  color: var(--text-muted);
 }
 
-@keyframes skeleton-shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-
-.skeleton-text {
-  height: 12px;
-  width: 70%;
+.spinner--lg {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
 }
 
 /* ---------------------------------------------------------------------

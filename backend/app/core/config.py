@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     # 封鎖時打的 tag,必須跟 PA-410 上 Dynamic Address Group 比對的 tag
     # 完全一致(防火牆端的一次性設定,不是這裡的程式碼範圍)。
     panos_block_tag: str = "mini-edr-blocked"
+    # 封鎖幾秒後自動解除(User-ID API 的 tag timeout)。實機上線後撞到真實
+    # 教訓:PA-410 這種入門機型的 registered-IP 容量有限,PAN-OS 內建的
+    # 另一個 auto-tagging 機制("Threat Alert")設成永久不過期(0),累積
+    # 超過 1000 筆就把容量佔滿,連我們自己的 mini-edr-blocked 都註冊不進去
+    # ——同一個坑我們自己的 tag 不該重蹈覆轍,預設改成 24 小時會自動過期,
+    # 不要無限累積。設成 0 才是永久(照 PAN-OS 原本的語意),需要真的想永久
+    # 封鎖再手動改。
+    panos_block_timeout_seconds: int = 86400
     # 即時掃描偵測門檻,走 Settings 不寫死常數——上線後很可能要依實際流量
     # 調整,不用改程式碼重新 build(比照 app/rules/definitions.py 對規則
     # 門檻值「預期之後要調」的既有態度)。

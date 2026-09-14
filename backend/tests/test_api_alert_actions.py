@@ -192,7 +192,9 @@ def test_block_firewall_ip_success_calls_pan_os_and_acknowledges(
         )
 
     assert response.status_code == 200
-    mocked.assert_called_once_with("1.2.3.4", settings.panos_block_tag)
+    mocked.assert_called_once_with(
+        "1.2.3.4", settings.panos_block_tag, settings.panos_block_timeout_seconds
+    )
     session.refresh(alert)
     assert alert.status == "acknowledged"
     body = response.json()

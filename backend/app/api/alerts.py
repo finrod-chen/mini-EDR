@@ -144,7 +144,9 @@ def perform_action(
             # body 欄位帶目標——跟 quarantine/kill_process 一樣直接用
             # alert.host。
             assert alert.host is not None
-            result = pan_os_remediation.block_ip(alert.host, settings.panos_block_tag)
+            result = pan_os_remediation.block_ip(
+                alert.host, settings.panos_block_tag, settings.panos_block_timeout_seconds
+            )
             new_status = "acknowledged"
         else:
             # ignore / mark_false_positive:不呼叫 Velociraptor,純粹改狀態。

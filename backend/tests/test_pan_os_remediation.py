@@ -60,3 +60,25 @@ def test_block_ip_malformed_xml_response_raises() -> None:
     ):
         with pytest.raises(pan_os_remediation.PanOsApiError):
             pan_os_remediation.block_ip("1.2.3.4", "mini-edr-blocked")
+
+
+def test_clear_all_registered_ips_success() -> None:
+    success_xml = '<response status="success"><result/></response>'
+    with patch(
+        "app.services.pan_os_remediation.httpx.get", return_value=_mock_response(success_xml)
+    ) as mocked_get:
+        result = pan_os_remediation.clear_all_registered_ips()
+
+    assert result == success_xml
+    _, kwargs = mocked_get.call_args
+    assert kwargs["params"]["type"] == "op"
+    assert kwargs["params"]["cmd"] == "<clear><registered-ip><all/></registered-ip></clear>"
+
+
+def test_clear_all_registered_ips_failure_raises() -> None:
+    failure_xml = '<response status="error"><msg>boom</msg></response>'
+    with patch(
+        "app.services.pan_os_remediation.httpx.get", return_value=_mock_response(failure_xml)
+    ):
+        with pytest.raises(pan_os_remediation.PanOsApiError):
+            pan_os_remediation.clear_all_registered_ips()

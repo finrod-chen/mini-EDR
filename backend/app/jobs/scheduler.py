@@ -23,6 +23,7 @@ from app.jobs.sync_defender_events import sync_defender_events
 from app.jobs.sync_snmp_assets import sync_snmp_assets
 from app.jobs.sync_sysmon_events import sync_sysmon_events
 from app.rules.engine import run_all_rules
+from app.services import pan_os_remediation
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,18 @@ def _run_purge_old_defender_events() -> None:
 
 def _run_all_rules() -> None:
     _run_with_session("run_all_rules", run_all_rules)
+
+
+def _run_clear_registered_ips() -> None:
+    # 不需要 DB session,不走 _run_with_session——這個 job 只是呼叫 PAN-OS
+    # API,見 pan_os_remediation.clear_all_registered_ips() 開頭的說明:
+    # 這個指令對 persistent 條目沒有效果(使用者已知悉這個限制,仍要求
+    # 排程執行)。
+    try:
+        result = pan_os_remediation.clear_all_registered_ips()
+        logger.info("clear_registered_ips finished: %s", result)
+    except Exception:
+        logger.exception("clear_registered_ips failed")
 
 
 def start() -> None:
@@ -143,6 +156,18 @@ def start() -> None:
         minutes=5,
         id="run_all_rules",
         next_run_time=datetime.now() + timedelta(minutes=1),
+        replace_existing=True,
+    )
+    # 使用者明確要求的每日排程,不是我們建議的解法——這個指令對 PAN-OS
+    # persistent 條目沒有效果(見 pan_os_remediation.clear_all_registered_ips
+    # 開頭的說明),排這個排程不會解決 registered-IP 容量被塞滿的問題,只是
+    # 清掉非 persistent 的殘留。
+    scheduler.add_job(
+        _run_clear_registered_ips,
+        "cron",
+        hour=7,
+        minute=0,
+        id="clear_registered_ips",
         replace_existing=True,
     )
     scheduler.start()

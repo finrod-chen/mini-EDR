@@ -75,3 +75,38 @@ def block_ip(ip: str, tag: str, timeout_seconds: int = 0) -> str:
     if parsed.get("status") != "success":
         raise PanOsApiError(resp.text[:2000])
     return resp.text[:2000]
+
+
+_CLEAR_REGISTERED_IP_CMD = "<clear><registered-ip><all/></registered-ip></clear>"
+
+
+def clear_all_registered_ips() -> str:
+    """清除所有已註冊的 IP-tag 對應,等同 CLI `debug object registered-ip
+    clear all`(op command 的 XML 寫法跟 CLI 版本不一樣,是 PAN-OS 文件
+    確認過的對應關係)。
+
+    實機驗證過的重要限制:PAN-OS 對標記為 persistent 的條目,這個指令完全
+    沒有效果——官方工程團隊的說法是 persistent 的動態 tag 只有 useridd
+    這個系統程序重啟(等同要重開機)才會真的消失。這支函式排程呼叫只能
+    清掉非 persistent 的殘留,清不掉 Log Forwarding Built-in Action 這類
+    機制產生的 persistent 條目,不能指望它解決容量被塞滿的問題——使用者
+    已經被告知這個限制,仍然要求排程執行,所以保留這支函式跟排程,但
+    不要誤以為它解決了 persistent 條目的問題。
+    """
+    try:
+        resp = httpx.get(
+            f"{settings.panos_api_base_url}/api/",
+            params={"type": "op", "cmd": _CLEAR_REGISTERED_IP_CMD, "key": settings.panos_api_key},
+            timeout=10.0,
+            verify=settings.panos_api_verify_tls,
+        )
+        resp.raise_for_status()
+        parsed = ET.fromstring(resp.text)
+    except httpx.HTTPError as exc:
+        raise PanOsApiError(f"PAN-OS API 連線失敗:{exc}") from exc
+    except ET.ParseError as exc:
+        raise PanOsApiError(f"PAN-OS API 回應不是合法 XML:{resp.text[:500]}") from exc
+
+    if parsed.get("status") != "success":
+        raise PanOsApiError(resp.text[:2000])
+    return resp.text[:2000]

@@ -57,11 +57,12 @@ const SAFE_ACTION_BUTTONS: { type: ActionType; label: string; variant: 'primary'
   { type: 'ignore', label: '忽略', variant: 'success' },
 ]
 
-// 批次動作故意只開放 SAFE_ACTION_BUTTONS 這兩個(標記誤判/忽略)——這兩個
+// 批次動作預設開放 SAFE_ACTION_BUTTONS 這兩個(標記誤判/忽略)——這兩個
 // 不需要每筆告警各自的參數(不像 kill_process 要 pid、verify_file 要
-// file_path),批次套用語意清楚;高風險動作(隔離主機/封鎖來源 IP)雖然
-// 也不需要額外參數,但一次對多筆目標執行不可逆動作風險較高,先不開放,
-// 之後真的有需求再評估。
+// file_path),批次套用語意清楚。封鎖來源 IP 也加進批次(固定對外 IP
+// 常態被掃描,一筆一筆封鎖太慢),但只有在選取的告警全部都是 PA-410
+// syslog 觸發的(host 是真的 IP)才顯示這顆按鈕——隔離主機/砍進程這類
+// 需要額外參數或風險模式不同的動作,還是維持只能單筆執行。
 
 export function AlertQueue() {
   const { user } = useAuth()
@@ -119,8 +120,15 @@ export function AlertQueue() {
     setSelectedIds(allVisibleSelected ? new Set() : new Set(sortedAlerts.map((a) => a.alert_id)))
   }
 
+  const selectedAlerts = sortedAlerts.filter((a) => selectedIds.has(a.alert_id))
+  // 封鎖來源 IP 只有在選取的告警「全部」都是 PA-410 syslog 觸發的才給批次
+  // 按鈕——混雜其他告警的話,host 不是 IP,送過去一定失敗,顯示這顆按鈕
+  // 反而誤導。
+  const canBulkBlock =
+    selectedAlerts.length > 0 && selectedAlerts.every((a) => FIREWALL_RULE_NAMES.has(a.rule_name ?? ''))
+
   const performBulkAction = async (
-    actionType: Extract<ActionType, 'ignore' | 'mark_false_positive'>,
+    actionType: Extract<ActionType, 'ignore' | 'mark_false_positive' | 'block_firewall_ip'>,
     label: string,
   ) => {
     const ids = [...selectedIds]
@@ -283,6 +291,15 @@ export function AlertQueue() {
                 批次{label}
               </button>
             ))}
+            {canBulkBlock && (
+              <button
+                className="btn btn--sm btn--danger"
+                disabled={bulkPending}
+                onClick={() => void performBulkAction('block_firewall_ip', '封鎖來源 IP')}
+              >
+                批次封鎖來源 IP
+              </button>
+            )}
           </div>
           {bulkMessage && <span className="text-muted">{bulkMessage}</span>}
         </div>

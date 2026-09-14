@@ -57,6 +57,12 @@ const SAFE_ACTION_BUTTONS: { type: ActionType; label: string; variant: 'primary'
   { type: 'ignore', label: '忽略', variant: 'success' },
 ]
 
+// 批次動作故意只開放 SAFE_ACTION_BUTTONS 這兩個(標記誤判/忽略)——這兩個
+// 不需要每筆告警各自的參數(不像 kill_process 要 pid、verify_file 要
+// file_path),批次套用語意清楚;高風險動作(隔離主機/封鎖來源 IP)雖然
+// 也不需要額外參數,但一次對多筆目標執行不可逆動作風險較高,先不開放,
+// 之後真的有需求再評估。
+
 export function AlertQueue() {
   const { user } = useAuth()
   const [alerts, setAlerts] = useState<Alert[]>([])
@@ -71,6 +77,9 @@ export function AlertQueue() {
   const [explainPending, setExplainPending] = useState<string | null>(null)
   const [explainError, setExplainError] = useState<Record<string, string>>({})
   const [relatedEvents, setRelatedEvents] = useState<Record<string, RelatedProcessEvent[]>>({})
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkPending, setBulkPending] = useState(false)
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null)
 
   const loadAlerts = useCallback(() => {
     setLoading(true)
@@ -85,12 +94,56 @@ export function AlertQueue() {
 
   useEffect(() => {
     void loadAlerts()
+    // 篩選條件一變,原本選取的告警可能已經不在畫面上了,清空選取比留著
+    // 「選到看不見的東西」更不容易讓人搞混。
+    setSelectedIds(new Set())
   }, [loadAlerts])
 
   const sortedAlerts = useMemo(
     () => [...alerts].sort((a, b) => severityRank(a.severity) - severityRank(b.severity)),
     [alerts],
   )
+
+  const toggleSelected = (alertId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(alertId)) next.delete(alertId)
+      else next.add(alertId)
+      return next
+    })
+  }
+
+  const allVisibleSelected = sortedAlerts.length > 0 && sortedAlerts.every((a) => selectedIds.has(a.alert_id))
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(sortedAlerts.map((a) => a.alert_id)))
+  }
+
+  const performBulkAction = async (
+    actionType: Extract<ActionType, 'ignore' | 'mark_false_positive'>,
+    label: string,
+  ) => {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    if (!window.confirm(`確定要對選取的 ${ids.length} 筆告警套用「${label}」嗎?`)) return
+
+    setBulkPending(true)
+    setBulkMessage(null)
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) => apiPost<ResponseAction>(`/api/alerts/${id}/actions`, { action_type: actionType })),
+      )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      const succeeded = results.length - failed
+      setBulkMessage(
+        failed === 0 ? `已對 ${succeeded} 筆告警套用「${label}」` : `成功 ${succeeded} 筆,失敗 ${failed} 筆`,
+      )
+      setSelectedIds(new Set())
+      await loadAlerts()
+    } finally {
+      setBulkPending(false)
+    }
+  }
 
   const performAction = async (
     alert: Alert,
@@ -216,6 +269,25 @@ export function AlertQueue() {
         </label>
       </div>
 
+      {user?.role === 'admin' && selectedIds.size > 0 && (
+        <div className="toolbar" style={{ alignItems: 'center' }}>
+          <span className="text-muted">已選取 {selectedIds.size} 筆</span>
+          <div className="btn-row">
+            {SAFE_ACTION_BUTTONS.map(({ type, label, variant }) => (
+              <button
+                key={type}
+                className={`btn btn--sm btn--${variant}`}
+                disabled={bulkPending}
+                onClick={() => void performBulkAction(type as 'ignore' | 'mark_false_positive', label)}
+              >
+                批次{label}
+              </button>
+            ))}
+          </div>
+          {bulkMessage && <span className="text-muted">{bulkMessage}</span>}
+        </div>
+      )}
+
       {!loading && sortedAlerts.length === 0 ? (
         <p className="text-muted">目前沒有符合條件的告警。</p>
       ) : (
@@ -224,6 +296,16 @@ export function AlertQueue() {
           <table className="data-table">
             <thead>
               <tr>
+                {user?.role === 'admin' && (
+                  <th>
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAll}
+                      aria-label="全選"
+                    />
+                  </th>
+                )}
                 <th>Severity</th>
                 <th>主機</th>
                 <th>規則名稱</th>
@@ -237,6 +319,16 @@ export function AlertQueue() {
                 sortedAlerts.map((alert) => (
                 <Fragment key={alert.alert_id}>
                   <tr className="row">
+                    {user?.role === 'admin' && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(alert.alert_id)}
+                          onChange={() => toggleSelected(alert.alert_id)}
+                          aria-label={`選取 ${alert.rule_name ?? alert.alert_id}`}
+                        />
+                      </td>
+                    )}
                     <td>
                       <span className="badge" data-severity={alert.severity ?? 'unknown'}>
                         {alert.severity ?? '未知'}
@@ -256,7 +348,7 @@ export function AlertQueue() {
                   </tr>
                   {expanded === alert.alert_id && (
                     <tr className="detail-row">
-                      <td colSpan={6}>
+                      <td colSpan={user?.role === 'admin' ? 7 : 6}>
                         <div className="detail-panel">
                           <p style={{ marginBottom: 8 }}>
                             <strong>AI 說明:</strong> {alert.ai_explanation ?? '尚未產生'}

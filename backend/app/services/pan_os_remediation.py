@@ -9,9 +9,11 @@
 `<uid-message>` XML 格式跟 `type=user-id` 這個 API 用法是 PAN-OS 官方文件
 確認過的標準做法(pan.dev 的 Automating IP Blocking 教學、PAN-OS 官方
 Register IP Addresses and Tags Dynamically 文件),`timeout` 屬性
-0 = 永久(不自動過期),非 0 = 幾秒後自動解除——這裡預設永久,因為封鎖是
-人工確認後才觸發的動作(不是自動封鎖),要解除的話目前只能去 PAN-OS 自己
-的介面手動操作,沒有另外做「解除封鎖」按鈕(不在這次範圍內)。
+0 = 永久(不自動過期),非 0 = 幾秒後自動解除。
+
+`unblock_ip()`/`list_blocked_ips()` 是解除封鎖清單頁面(app/api/firewall.py)
+用的對應函式,分別對應 User-ID API 的 unregister 跟 op command 的
+`show object registered-ip all`。
 """
 
 from __future__ import annotations
@@ -75,6 +77,101 @@ def block_ip(ip: str, tag: str, timeout_seconds: int = 0) -> str:
     if parsed.get("status") != "success":
         raise PanOsApiError(resp.text[:2000])
     return resp.text[:2000]
+
+
+def _build_unregister_payload(ip: str, tag: str) -> str:
+    # 跟 _build_register_payload 對稱,差別只在 <register> 換成 <unregister>
+    # ——PAN-OS User-ID API 的 register/unregister 用同一種 entry+tag+member
+    # 結構,不需要 timeout 屬性(那是 register 才有意義的「幾秒後自動過期」
+    # 語意,解除封鎖沒有「幾秒後解除」這回事)。
+    root = ET.Element("uid-message")
+    ET.SubElement(root, "type").text = "update"
+    payload = ET.SubElement(root, "payload")
+    unregister = ET.SubElement(payload, "unregister")
+    entry = ET.SubElement(unregister, "entry")
+    entry.set("ip", ip)
+    tag_el = ET.SubElement(entry, "tag")
+    member = ET.SubElement(tag_el, "member")
+    member.text = tag
+    return ET.tostring(root, encoding="unicode")
+
+
+def unblock_ip(ip: str, tag: str) -> str:
+    """解除 block_ip() 打上的 tag(User-ID API 的 unregister),回傳 PAN-OS
+    原始回應文字(截斷到 2000 字),當 ResponseAction.result 的稽核佐證。
+    跟 block_ip 共用同一套輸入驗證/錯誤處理邏輯。"""
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError as exc:
+        raise PanOsApiError(f"不是合法的 IP 位址:{ip}") from exc
+
+    cmd = _build_unregister_payload(ip, tag)
+    try:
+        resp = httpx.post(
+            f"{settings.panos_api_base_url}/api/",
+            params={"type": "user-id", "key": settings.panos_api_key},
+            data={"cmd": cmd},
+            timeout=10.0,
+            verify=settings.panos_api_verify_tls,
+        )
+        resp.raise_for_status()
+        parsed = ET.fromstring(resp.text)
+    except httpx.HTTPError as exc:
+        raise PanOsApiError(f"PAN-OS API 連線失敗:{exc}") from exc
+    except ET.ParseError as exc:
+        raise PanOsApiError(f"PAN-OS API 回應不是合法 XML:{resp.text[:500]}") from exc
+
+    if parsed.get("status") != "success":
+        raise PanOsApiError(resp.text[:2000])
+    return resp.text[:2000]
+
+
+_SHOW_REGISTERED_IP_CMD = "<show><object><registered-ip><all/></registered-ip></object></show>"
+
+
+def list_blocked_ips(tag: str) -> list[dict[str, object]]:
+    """列出目前被打上指定 tag 的 registered-ip,對應 CLI `show object
+    registered-ip all`(op command,跟 clear_all_registered_ips 同一種
+    type=op 用法)。只回傳有掛這個 tag 的條目,給封鎖清單頁面用。
+
+    timeout_seconds 是 PAN-OS 回傳的剩餘秒數(tag member 的 timeout 屬性),
+    沒有這個屬性代表是永久或已轉成 persistent,回傳 None——跟
+    clear_all_registered_ips() docstring 提到的限制一致,None 不代表這筆
+    清得掉。
+    """
+    try:
+        resp = httpx.get(
+            f"{settings.panos_api_base_url}/api/",
+            params={"type": "op", "cmd": _SHOW_REGISTERED_IP_CMD, "key": settings.panos_api_key},
+            timeout=10.0,
+            verify=settings.panos_api_verify_tls,
+        )
+        resp.raise_for_status()
+        parsed = ET.fromstring(resp.text)
+    except httpx.HTTPError as exc:
+        raise PanOsApiError(f"PAN-OS API 連線失敗:{exc}") from exc
+    except ET.ParseError as exc:
+        raise PanOsApiError(f"PAN-OS API 回應不是合法 XML:{resp.text[:500]}") from exc
+
+    if parsed.get("status") != "success":
+        raise PanOsApiError(resp.text[:2000])
+
+    result = parsed.find("result")
+    if result is None:
+        return []
+
+    blocked: list[dict[str, object]] = []
+    for entry in result.findall("entry"):
+        ip = entry.get("ip")
+        if not ip:
+            continue
+        for member in entry.findall("./tag/member"):
+            if member.text != tag:
+                continue
+            timeout_attr = member.get("timeout")
+            timeout_seconds = int(timeout_attr) if timeout_attr and timeout_attr.isdigit() else None
+            blocked.append({"ip": ip, "tag": tag, "timeout_seconds": timeout_seconds})
+    return blocked
 
 
 _CLEAR_REGISTERED_IP_CMD = "<clear><registered-ip><all/></registered-ip></clear>"

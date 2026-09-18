@@ -8,6 +8,7 @@ import { Logo } from './Logo'
 const NAV_ITEMS = [
   { to: '/alerts', label: '告警佇列' },
   { to: '/response-actions', label: '應變紀錄' },
+  { to: '/firewall-blocklist', label: '防火牆封鎖清單' },
   { to: '/assets', label: '資產管理' },
 ]
 

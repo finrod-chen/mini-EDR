@@ -3,6 +3,7 @@ import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AlertQueue } from './pages/AlertQueue'
 import { AssetManagement } from './pages/AssetManagement'
+import { FirewallBlocklist } from './pages/FirewallBlocklist'
 import { Login } from './pages/Login'
 import { ResponseLog } from './pages/ResponseLog'
 
@@ -19,6 +20,7 @@ function App() {
                 <Route path="/" element={<Navigate to="/alerts" replace />} />
                 <Route path="/alerts" element={<AlertQueue />} />
                 <Route path="/response-actions" element={<ResponseLog />} />
+                <Route path="/firewall-blocklist" element={<FirewallBlocklist />} />
                 <Route path="/assets" element={<AssetManagement />} />
               </Routes>
             </Layout>

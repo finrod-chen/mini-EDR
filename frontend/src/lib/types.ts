@@ -38,6 +38,12 @@ export interface RelatedProcessEvent {
   command_line: string | null
 }
 
+export interface BlockedIp {
+  ip: string
+  tag: string
+  timeout_seconds: number | null
+}
+
 export interface ResponseAction {
   action_id: string
   alert_id: string | null

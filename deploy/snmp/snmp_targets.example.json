@@ -1,5 +1,6 @@
 [
   { "ip": "10.0.10.11", "device_type": "printer", "label": "3F-MFP-Canon" },
   { "ip": "10.0.10.12", "device_type": "nas", "label": "Synology-Backup" },
-  { "ip": "10.0.10.1", "device_type": "firewall", "label": "Edge-FW" }
+  { "ip": "10.0.10.1", "device_type": "firewall", "label": "Edge-FW" },
+  { "ip": "10.0.10.2", "device_type": "router", "label": "3F-WiFi-AP" }
 ]

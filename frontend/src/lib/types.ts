@@ -65,7 +65,7 @@ export interface SnmpMetricEntry {
 }
 
 export type MonitorType = 'velociraptor' | 'snmp'
-export type DeviceType = 'printer' | 'nas' | 'firewall' | 'other'
+export type DeviceType = 'printer' | 'nas' | 'firewall' | 'router' | 'other'
 
 export interface Asset {
   asset_id: string

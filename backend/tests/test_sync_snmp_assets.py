@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.jobs.sync_snmp_assets import (
+    _METRIC_COLLECTORS,
     SnmpPollResult,
     SnmpTarget,
     _build_firewall_metrics,
@@ -328,3 +329,9 @@ def test_build_firewall_metrics_multiple_down_interfaces_joined() -> None:
     _, alert = _build_firewall_metrics(descriptions, admin_statuses, oper_statuses)
 
     assert alert == "介面異常(eth1、eth2)"
+
+
+def test_router_device_type_reuses_firewall_interface_collector() -> None:
+    # 路由器的 WAN/LAN/WLAN port 跟防火牆介面在 SNMP 協定層面是同一回事
+    # (都是 IF-MIB 的 ifEntry),device_type="router" 不該另外刻一份重複邏輯。
+    assert _METRIC_COLLECTORS["router"] is _METRIC_COLLECTORS["firewall"]

@@ -329,6 +329,10 @@ _METRIC_COLLECTORS = {
     "printer": _collect_printer_metrics,
     "nas": _collect_nas_metrics,
     "firewall": _collect_firewall_metrics,
+    # 路由器(含 WiFi router)沒有自己專屬的 MIB,WAN/LAN/WLAN 每個 port 在
+    # SNMP 上就是 IF-MIB 的一個 ifEntry,跟防火牆的介面在協定層面是同一回事
+    # ——直接重用 _collect_firewall_metrics,不用另外刻一份一樣的邏輯。
+    "router": _collect_firewall_metrics,
 }
 
 

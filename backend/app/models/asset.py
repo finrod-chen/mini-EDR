@@ -47,8 +47,8 @@ class AssetInventory(Base):
     snmp_uptime_seconds: Mapped[int | None] = mapped_column(BigInteger)
     snmp_last_poll_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     snmp_last_poll_ok: Mapped[bool | None] = mapped_column(Boolean)
-    # Phase 2:裝置類型專屬指標(印表機碳粉/NAS 磁碟/防火牆介面),見
-    # app/jobs/sync_snmp_assets.py 的 _collect_*_metrics()。三種裝置類型統一
+    # Phase 2:裝置類型專屬指標(印表機碳粉/NAS 磁碟/防火牆與路由器介面),見
+    # app/jobs/sync_snmp_assets.py 的 _collect_*_metrics()。這些裝置類型統一
     # 用同一種 [{"label": ..., "value": ...}, ...] 形狀存進 snmp_metric_data,
     # 前端可以用同一套 Label/Value 清單渲染,不用依裝置類型分別刻 UI。
     # snmp_metric_alert 只有命中門檻(碳粉過低/磁碟過高/介面異常)時才非

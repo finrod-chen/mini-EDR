@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { LoadingOverlay } from '../components/LoadingOverlay'
 import { ApiError, apiGet, apiPost } from '../lib/api'
+import { useAssetIpLookup } from '../lib/assetLookup'
 import type { BlockedIp } from '../lib/types'
 
 function formatTimeout(seconds: number | null): string {
@@ -14,6 +15,7 @@ function formatTimeout(seconds: number | null): string {
 
 export function FirewallBlocklist() {
   const { user } = useAuth()
+  const assetLookup = useAssetIpLookup()
   const [ips, setIps] = useState<BlockedIp[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -73,7 +75,16 @@ export function FirewallBlocklist() {
               {!loading &&
                 ips.map((row) => (
                   <tr className="row" key={row.ip}>
-                    <td>{row.ip}</td>
+                    <td>
+                      {assetLookup.has(row.ip) ? (
+                        <>
+                          {assetLookup.get(row.ip)}
+                          <div className="text-faint">{row.ip}</div>
+                        </>
+                      ) : (
+                        row.ip
+                      )}
+                    </td>
                     <td className="text-muted">{row.tag}</td>
                     <td className="text-muted">{formatTimeout(row.timeout_seconds)}</td>
                     {user?.role === 'admin' && (

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { LoadingOverlay } from '../components/LoadingOverlay'
 import { ApiError, apiGet, apiPost } from '../lib/api'
+import { useAssetIpLookup } from '../lib/assetLookup'
 import { SEVERITY_ORDER, severityRank } from '../lib/severity'
 import type {
   ActionType,
@@ -66,6 +67,7 @@ const SAFE_ACTION_BUTTONS: { type: ActionType; label: string; variant: 'primary'
 
 export function AlertQueue() {
   const { user } = useAuth()
+  const assetLookup = useAssetIpLookup()
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [severityFilter, setSeverityFilter] = useState<Severity | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -351,7 +353,9 @@ export function AlertQueue() {
                         {alert.severity ?? '未知'}
                       </span>
                     </td>
-                    <td>{alert.host ?? '-'}</td>
+                    <td>
+                      {alert.host && assetLookup.has(alert.host) ? assetLookup.get(alert.host) : (alert.host ?? '-')}
+                    </td>
                     <td>{alert.rule_name ?? '-'}</td>
                     <td className="text-muted">
                       {alert.created_at ? new Date(alert.created_at).toLocaleString() : '-'}

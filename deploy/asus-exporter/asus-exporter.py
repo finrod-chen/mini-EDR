@@ -1,9 +1,18 @@
 # vendor 自 https://github.com/LaurentDumont/asus-router-exporter
 # commit 8fd39180f21e2c0907a273ef8ad916d9e4fe0200(asus-exporter.py,原始檔名相同)。
 # 上游 repo 沒有附 LICENSE 檔(預設保留著作權),這裡是個人/內部使用,
-# 不對外散布。內容照原樣保留,不修改邏輯——只有這一段來源註記是新加的。
-# 如果要更新版本,直接對照上游同一個檔案重新複製,沒有自動同步機制,
-# 見 deploy/asus-exporter/README.md。
+# 不對外散布。如果要更新版本,直接對照上游同一個檔案重新複製,沒有自動
+# 同步機制,見 deploy/asus-exporter/README.md。
+#
+# 跟上游的差異(僅此一處,其餘邏輯照原樣保留):login_router() 原本寫死
+# `http://{ip}/login.cgi`,假設 exporter 跟路由器在同一個 LAN、路由器的
+# 網頁管理介面走預設的 HTTP:80。這個專案的部署情境是 exporter 只能從
+# 路由器的 WAN 端(其實是內部管理網段,見 README)存取,ASUS 韌體的
+# 「Enable Web Access from WAN」只開放 HTTPS + 自訂 port(預設 8443)、
+# 自簽憑證,所以改成可設定的 scheme/port(ASUS_SCHEME/ASUS_PORT,見下面
+# login_router()),並且對 requests 關閉憑證驗證(自簽憑證,跟這個專案
+# 對 PAN-OS API 的既有安全假設一致,見 backend/app/core/config.py 的
+# panos_api_verify_tls)。
 
 from time import sleep
 import requests
@@ -12,6 +21,12 @@ from os import getenv
 import json
 from prometheus_client import start_http_server, Gauge
 from re import sub, compile, findall
+
+# 自簽憑證會讓 requests 每次請求都印一次 InsecureRequestWarning,關掉
+# verify 後這個警告本來就是預期中的雜訊,不用讓它洗版 log。
+requests.packages.urllib3.disable_warnings(  # type: ignore[attr-defined]
+    requests.packages.urllib3.exceptions.InsecureRequestWarning  # type: ignore[attr-defined]
+)
 
 
 #data total = {
@@ -194,12 +209,23 @@ def login_router():
     base64_bytes = base64.b64encode(string_bytes)
     login = base64_bytes.decode('ascii')
 
-    url = 'http://{}/login.cgi'.format(asus_ip)
+    # ASUS_SCHEME/ASUS_PORT 是這次 vendor 進來時加的(見檔案開頭的差異
+    # 說明),不是上游原本就有——WAN 端管理介面(「Enable Web Access from
+    # WAN」)預設是 HTTPS + 8443,不是路由器 LAN 端那組預設的 HTTP:80。
+    scheme = getenv('ASUS_SCHEME', 'https')
+    port = getenv('ASUS_PORT', '8443')
+    base_url = '{}://{}:{}'.format(scheme, asus_ip, port) if port else '{}://{}'.format(scheme, asus_ip)
+
+    url = base_url + '/login.cgi'
     payload = "login_authorization=" + login
     headers = {
         'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245"
     }
-    r = requests.post(url=url, data=payload, headers=headers)
+    # verify=False:WAN 端管理介面是自簽憑證(見檔案開頭說明);
+    # timeout:上游原本完全沒設,連不到的話 requests 會卡到系統 TCP
+    # 逾時(可能好幾分鐘)才會進到 main() 的 except,重試迴圈形同卡死,
+    # 而且什麼 log 都看不到,這裡補上合理的逾時,壞掉要快點知道。
+    r = requests.post(url=url, data=payload, headers=headers, verify=False, timeout=10)
     token = r.json()['asus_token']
     #print(token)
 
@@ -213,7 +239,13 @@ def login_router():
     for payload in payload_list:
         formated_payload = "hook="+payload+';'
         try:
-            r = requests.post(url='http://{}/appGet.cgi'.format(asus_ip), data=formated_payload, headers=headers)
+            r = requests.post(
+                url=base_url + '/appGet.cgi',
+                data=formated_payload,
+                headers=headers,
+                verify=False,
+                timeout=10,
+            )
             #print(r.text)
             parse_payload(r.text)
         except Exception as e:

@@ -21,14 +21,38 @@ ASUS 路由器,就要跑幾個這個 container 的實例,各自用不同的
 (對應 3 台路由器),都是同一份程式碼、同一個 build context,差別只在
 各自的 env file。
 
+## 網路拓樸:exporter 只能打路由器的 WAN 端
+
+這幾台路由器是接在主網路下當「路由器模式」用(不是直接掛在同一個 LAN
+的 SNMP 裝置那種),各自的 LAN 端(WiFi 客戶端連的)是獨立子網,exporter
+container 跟這些子網不通,只能打得到路由器的 **WAN 端** IP。
+
+多數消費型路由器(ASUS 也一樣)預設**不允許從 WAN 端存取網頁管理介面**
+——就算這個「WAN」其實是你自己的內網、不是 Internet,路由器不會區分。
+要監控就得去每台路由器的管理介面(從連上該路由器 WiFi 的裝置,例如
+`https://192.168.50.1`)手動開:
+
+**Administration → System → Enable Web Access from WAN**
+
+⚠️ **安全性 trade-off,自己評估要不要開**:打開後,任何打得到路由器 WAN
+端 IP 的裝置都能看到登入頁(帳密仍要正確才能登入,但攻擊面變大了)。
+建議搭配 PA-410 防火牆加一條規則,只允許 NAS 的來源 IP 打這幾台路由器
+WAN 端 IP 的管理 port,不要讓整個內網都碰得到。
+
+開啟後,ASUS 韌體預設會把 WAN 端管理介面換成 **HTTPS + 8443**(不是
+LAN 端預設的 HTTP:80),而且是自簽憑證——`asus-exporter.py` 已經改成
+預設打 `https://<ip>:8443` 並關閉憑證驗證來配合這個限制(見檔案開頭的
+差異說明,`ASUS_SCHEME`/`ASUS_PORT` 環境變數可以覆寫)。
+
 ## 首次部署
 
 ```bash
 cp deploy/asus-exporter/router.env.example deploy/asus-exporter/router-1.env
 cp deploy/asus-exporter/router.env.example deploy/asus-exporter/router-2.env
 cp deploy/asus-exporter/router.env.example deploy/asus-exporter/router-3.env
-# 編輯三個 router-N.env,各自填入該台路由器的管理介面帳密與 IP
-# (ASUS_USERNAME / ASUS_PASSWORD / ASUS_IP)
+# 編輯三個 router-N.env,各自填入該台路由器的管理介面帳密與「WAN 端」IP
+# (ASUS_USERNAME / ASUS_PASSWORD / ASUS_IP——不是連上該路由器 WiFi 看到
+# 的 LAN 閘道 IP,見上面「網路拓樸」一節)
 
 cp deploy/asus_exporter/asus_targets.example.json deploy/asus_exporter/asus_targets.json
 # 編輯 asus_targets.json:ip 要跟對應 router-N.env 的 ASUS_IP 一致,

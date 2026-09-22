@@ -22,6 +22,13 @@ deploy/velociraptor/*.yaml
 deploy/snmp/*.json
 !deploy/snmp/*.example.json
 
+# ASUS exporter 監控目標清單(可能含內部 IP 配置細節,範本除外)
+deploy/asus_exporter/*.json
+!deploy/asus_exporter/*.example.json
+
+# ASUS 路由器管理介面帳密(每台一份,範本除外)
+deploy/asus-exporter/router-*.env
+
 # OS
 .DS_Store
 Thumbs.db

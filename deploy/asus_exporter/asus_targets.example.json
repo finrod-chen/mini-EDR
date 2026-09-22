@@ -1,0 +1,5 @@
+[
+  { "exporter_url": "http://asus-exporter-1:8000/metrics", "ip": "192.168.50.1", "label": "3F-ASUS-AX88U" },
+  { "exporter_url": "http://asus-exporter-2:8000/metrics", "ip": "192.168.51.1", "label": "2F-ASUS-RT86U" },
+  { "exporter_url": "http://asus-exporter-3:8000/metrics", "ip": "192.168.52.1", "label": "1F-ASUS-XT8" }
+]

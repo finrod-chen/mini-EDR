@@ -1,3 +1,10 @@
+# 3 台 ASUS 路由器 = 3 個 exporter container 實例(見 deploy/asus-exporter/
+# README.md——一個實例只服務一台路由器),用這個 anchor 共用 build/restart
+# 設定,避免 3 段複製貼上。
+x-asus-exporter: &asus-exporter
+  build: ./deploy/asus-exporter
+  restart: unless-stopped
+
 services:
   db:
     image: timescale/timescaledb:latest-pg16
@@ -44,6 +51,24 @@ services:
       - ./deploy/velociraptor/etc/:/etc/velociraptor/
       - ./deploy/velociraptor/datastore/:/datastore/
 
+  # 沒有開 SNMP 服務的 ASUS 路由器,改用這個 vendor 進來的 exporter 模擬
+  # 官方 App 登入路由器管理介面(見 deploy/asus-exporter/README.md)。不對
+  # 外開 port,只給同 network 內的 backend 打;各自監聽容器內部固定的
+  # 8000,靠 service name 互相區分,不衝突。新增第 4 台路由器的步驟見
+  # deploy/asus-exporter/README.md。
+  asus-exporter-1:
+    <<: *asus-exporter
+    env_file:
+      - ./deploy/asus-exporter/router-1.env
+  asus-exporter-2:
+    <<: *asus-exporter
+    env_file:
+      - ./deploy/asus-exporter/router-2.env
+  asus-exporter-3:
+    <<: *asus-exporter
+    env_file:
+      - ./deploy/asus-exporter/router-3.env
+
   backend:
     build: ./backend
     restart: unless-stopped
@@ -59,6 +84,8 @@ services:
       # 相對路徑解析不到,一定要在這裡蓋成容器內實際掛載的絕對路徑——跟下面
       # VELOCIRAPTOR_API_CONFIG_PATH 蓋掉預設值的道理一樣。
       SNMP_TARGETS_CONFIG_PATH: /snmp/snmp_targets.json
+      # 同上,蓋掉 app/core/config.py 給本機 `uv run` 用的相對路徑預設值。
+      ASUS_EXPORTER_TARGETS_CONFIG_PATH: /asus_exporter/asus_targets.json
     volumes:
       # 見 deploy/velociraptor/README.md 第 6 節產生的 api_client.yaml,
       # 這個檔案不存在的話 backend 起得來但 Velociraptor 相關功能(資產同步、
@@ -68,6 +95,10 @@ services:
       # 的格式範本)。這個檔案不存在的話 sync_snmp_assets 排程會直接
       # FileNotFoundError,但不影響其他功能。
       - ./deploy/snmp/snmp_targets.json:/snmp/snmp_targets.json:ro
+      # ASUS exporter 目標清單(見 deploy/asus_exporter/asus_targets.example.json
+      # 的格式範本)。這個檔案不存在的話 sync_asus_exporter_assets 排程會直接
+      # FileNotFoundError,但不影響其他功能。
+      - ./deploy/asus_exporter/asus_targets.json:/asus_exporter/asus_targets.json:ro
     ports:
       # 8000 已經被 velociraptor-server 的 client 連線埠佔用,backend 對外
       # 開 8080。
@@ -79,6 +110,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # 純排序(等 container 開始跑),不是等 exporter 健康——exporter
+      # 沒有內建 healthcheck,冷啟動時第一輪輪詢抓不到算正常的暫時性
+      # ok=False,不該擋著 backend 不啟動。
+      asus-exporter-1:
+        condition: service_started
+      asus-exporter-2:
+        condition: service_started
+      asus-exporter-3:
+        condition: service_started
 
   frontend:
     build:

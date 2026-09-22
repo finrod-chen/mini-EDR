@@ -19,6 +19,7 @@ from app.jobs.sync_assets import (
     sync_hardware_details,
     sync_software_inventory,
 )
+from app.jobs.sync_asus_exporter import sync_asus_exporter_assets
 from app.jobs.sync_defender_events import sync_defender_events
 from app.jobs.sync_snmp_assets import sync_snmp_assets
 from app.jobs.sync_sysmon_events import sync_sysmon_events
@@ -61,6 +62,10 @@ def _run_sync_defender_events() -> None:
 
 def _run_sync_snmp_assets() -> None:
     _run_with_session("sync_snmp_assets", sync_snmp_assets)
+
+
+def _run_sync_asus_exporter_assets() -> None:
+    _run_with_session("sync_asus_exporter_assets", sync_asus_exporter_assets)
 
 
 def _run_purge_old_defender_events() -> None:
@@ -138,6 +143,16 @@ def start() -> None:
         minutes=5,
         id="sync_snmp_assets",
         next_run_time=datetime.now() + timedelta(minutes=2),
+        replace_existing=True,
+    )
+    # 同一種輕量 HTTP 輪詢,5 分鐘頻率跟 SNMP job 一致;offset 4 分鐘
+    # 避開上面幾個 job 的 0/1/2/3 分鐘起始點,降低同時搶跑的機率。
+    scheduler.add_job(
+        _run_sync_asus_exporter_assets,
+        "interval",
+        minutes=5,
+        id="sync_asus_exporter_assets",
+        next_run_time=datetime.now() + timedelta(minutes=4),
         replace_existing=True,
     )
     scheduler.add_job(

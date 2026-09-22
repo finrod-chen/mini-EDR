@@ -1,0 +1,6 @@
+# 上游(見 asus-exporter.py 開頭的來源註記)的 requirements.txt 是整包
+# dev lockfile(含 black/mypy/ruff/bandit/ipython 等開發工具),這裡只留
+# asus-exporter.py 實際 import 的兩個執行期套件,其餘都是 stdlib
+# (base64/json/os/re/time)。版本沿用上游 lockfile 釘的版本。
+requests==2.32.3
+prometheus_client==0.20.0

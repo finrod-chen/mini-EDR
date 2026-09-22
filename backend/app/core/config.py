@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     snmp_timeout_seconds: float = 3.0
     snmp_retries: int = 1
 
+    # ASUS 路由器資產監控(沒有 SNMP 服務的裝置,見 app/jobs/sync_asus_exporter.py)。
+    # 資料來源不是 SNMP,是 deploy/asus-exporter/ 這個 vendor 進來的
+    # Prometheus exporter(模擬 ASUS 官方 App 登入路由器管理介面);寫進
+    # asset_inventory 時沿用跟 SNMP 裝置一樣的 monitor_type='snmp',所以
+    # 設定風格也比照 snmp_targets_config_path——靜態 JSON 檔案,不是 DB
+    # 表,一個 exporter container 只服務一台路由器,格式見
+    # deploy/asus_exporter/asus_targets.example.json。
+    asus_exporter_targets_config_path: str = "../deploy/asus_exporter/asus_targets.json"
+    asus_exporter_timeout_seconds: float = 5.0
+
     # PA-410 syslog 掃描偵測 + 人工一鍵封鎖(見 app/services/syslog_listener.py
     # /firewall_scan_detector.py/pan_os_remediation.py)。只有這一台防火牆
     # 需要,不是通用 syslog 收集平台。

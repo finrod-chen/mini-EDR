@@ -20,7 +20,7 @@ import base64
 from os import getenv
 import json
 from prometheus_client import start_http_server, Gauge
-from re import sub, compile, findall
+from re import sub, compile, findall, search
 
 # 自簽憑證會讓 requests 每次請求都印一次 InsecureRequestWarning,關掉
 # verify 後這個警告本來就是預期中的雜訊,不用讓它洗版 log。
@@ -167,12 +167,17 @@ def parse_payload(payload):
         memory_used_metric.set(float(memory_used))
 
     elif "uptime" in payload:
-        json_payload = json.loads(payload)
-        # Calculate uptime
-        if json_payload['uptime']:
-            uptime_seconds = json_payload['uptime'].split(' ')[5].split('(')[1]
-            #print(uptime_seconds)
-            uptime_metric.set(uptime_seconds)
+        # 這個 hook 回的不是嚴格 JSON——"uptime" 的值是沒加引號的日期字串
+        # (例如 `"uptime":Tue, 22 Sep 2026 17:35:15 +0800(2769597 secs
+        # since boot)`),上游原本直接 json.loads(payload) 會直接
+        # JSONDecodeError 炸掉,這是 ASUS 這批 hook 本來的設計問題(給
+        # 網頁前端 eval() 當 JS 物件字面值用,不保證是合法 JSON,不同
+        # 韌體版本引不引號都可能不一樣)。改成直接用 regex 從原始文字裡
+        # 撈「(N secs since boot)」這段,不依賴整段是合法 JSON、也不管
+        # 日期部分的格式。
+        match = search(r'\((\d+)\s*secs? since boot\)', payload)
+        if match:
+            uptime_metric.set(float(match.group(1)))
 
     elif "get_clientlist" in payload:
         json_payload = json.loads(payload)

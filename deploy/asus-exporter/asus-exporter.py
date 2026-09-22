@@ -4,15 +4,31 @@
 # 不對外散布。如果要更新版本,直接對照上游同一個檔案重新複製,沒有自動
 # 同步機制,見 deploy/asus-exporter/README.md。
 #
-# 跟上游的差異(僅此一處,其餘邏輯照原樣保留):login_router() 原本寫死
-# `http://{ip}/login.cgi`,假設 exporter 跟路由器在同一個 LAN、路由器的
-# 網頁管理介面走預設的 HTTP:80。這個專案的部署情境是 exporter 只能從
-# 路由器的 WAN 端(其實是內部管理網段,見 README)存取,ASUS 韌體的
-# 「Enable Web Access from WAN」只開放 HTTPS + 自訂 port(預設 8443)、
-# 自簽憑證,所以改成可設定的 scheme/port(ASUS_SCHEME/ASUS_PORT,見下面
-# login_router()),並且對 requests 關閉憑證驗證(自簽憑證,跟這個專案
-# 對 PAN-OS API 的既有安全假設一致,見 backend/app/core/config.py 的
-# panos_api_verify_tls)。
+# 跟上游的差異(部署到這個專案的 3 台實機後陸續補的,都是對症下藥,不是
+# 重寫;其餘邏輯照原樣保留):
+# 1. login_router() 原本寫死 `http://{ip}/login.cgi`,假設 exporter 跟
+#    路由器在同一個 LAN、路由器的網頁管理介面走預設的 HTTP:80。這個專案
+#    的部署情境是 exporter 只能從路由器的 WAN 端(其實是內部管理網段,見
+#    README)存取,ASUS 韌體的「Enable Web Access from WAN」只開放 HTTPS
+#    + 自訂 port(預設 8443)、自簽憑證,所以改成可設定的 scheme/port
+#    (ASUS_SCHEME/ASUS_PORT,見下面 login_router()),並且對 requests
+#    關閉憑證驗證(自簽憑證,跟這個專案對 PAN-OS API 的既有安全假設一致,
+#    見 backend/app/core/config.py 的 panos_api_verify_tls)。
+# 2. parse_payload() 的 CPU 解析原本無條件對 cpu1~cpu4 四個變數呼叫
+#    .set(),但少於 4 核心的機型(實測 RT-AX82U)回應裡根本不會有
+#    cpu3/cpu4 的資料,迴圈結束後這兩個變數從沒被賦值,直接
+#    UnboundLocalError。改成沒抓到的核心明確 set 成 NaN(不是 0.0——
+#    0.0 沒辦法分辨「真的閒置」還是「這顆核心不存在」)。
+# 3. uptime 的解析原本整段丟給 json.loads(),但這個 hook 回的不是嚴格
+#    JSON(日期字串沒加引號,實測至少一款韌體是這樣——這些 hook 本來是
+#    給網頁前端 eval() 當 JS 物件字面值用的,不保證是合法 JSON),改成
+#    直接用 regex 從原始文字撈「(N secs since boot)」這段。
+# 4. get_clientlist() 的每個裝置原本無條件 float(curRx)/float(curTx)、
+#    int(wlConnectTime 切出來的每一段),但實測(RT-AX1800HP 386_68691)
+#    這幾個欄位常常是空字串,一撞到就整個 hook 從第一台裝置開始全部中斷
+#    處理。改成缺值就設 NaN/略過,不影響其他裝置——這支 exporter 只拿
+#    active_device 的 mac_address 標籤去數連線裝置數,不看這幾個欄位的
+#    實際數值。
 
 from time import sleep
 import requests
@@ -98,6 +114,18 @@ def health_check():
 def sanitize_string(data):
     #remove all non-numeric characters
     return sub(r"\D", "", data)
+
+def safe_float(value):
+    # get_clientlist() 有些欄位(curRx/curTx/wlConnectTime,實測至少在
+    # RT-AX1800HP 386_68691 這個韌體版本上)會是空字串而不是數字——這支
+    # exporter 只拿這些欄位去算連線裝置數(見 backend 的
+    # sync_asus_exporter.py,不看實際的 RX/TX 數值),缺值時用 NaN 代表
+    # 「這個裝置沒有回報這個指標」,不要讓一整個 get_clientlist 因為一個
+    # 空欄位就整批處理中斷(上游原本沒有這層防禦,直接 float('') 炸掉)。
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float('nan')
 
 def parse_payload(payload):
     #print(payload)
@@ -194,20 +222,23 @@ def parse_payload(payload):
                                         device_name=current_device['name'],
                                         connection_type='wireless',
                                         metric='Current RX speed Mb',
-                                        mac_address=current_device['mac']).set(float(current_device['curRx']))
+                                        mac_address=current_device['mac']).set(safe_float(current_device['curRx']))
             active_device_metric.labels(ip_address=current_device['ip'],
                                         device_name=current_device['name'],
                                         connection_type='wireless',
                                         metric='Current TX speed Mb',
-                                        mac_address=current_device['mac']).set(float(current_device['curTx']))
+                                        mac_address=current_device['mac']).set(safe_float(current_device['curTx']))
             active_device_metric.labels(ip_address=current_device['ip'],
                                         device_name=current_device['name'],
                                         connection_type='wireless',
                                         metric='RSSI',
-                                        mac_address=current_device['mac']).set(float(current_device['rssi']))
+                                        mac_address=current_device['mac']).set(safe_float(current_device['rssi']))
 
-            total_connected_time = current_device['wlConnectTime'].split(':')
-            total_connected_time_seconds = (int(total_connected_time[0]) * 3600) + (int(total_connected_time[1]) * 60) + int(total_connected_time[2])
+            try:
+                total_connected_time = current_device['wlConnectTime'].split(':')
+                total_connected_time_seconds = (int(total_connected_time[0]) * 3600) + (int(total_connected_time[1]) * 60) + int(total_connected_time[2])
+            except (ValueError, IndexError):
+                total_connected_time_seconds = float('nan')
             active_device_metric.labels(ip_address=current_device['ip'],
                                         device_name=current_device['name'],
                                         connection_type='wireless',

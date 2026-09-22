@@ -105,6 +105,18 @@ def parse_payload(payload):
     if "cpu_usage" in payload:
         sanitized_format_cpu = payload.split(',')
 
+        # 上游原本沒初始化這四個變數,雙核心(或核心數 < 4)的機型回應裡
+        # 根本不會有 cpu3_*/cpu4_* 的資料,迴圈結束後這兩個變數從沒被
+        # 賦值過,下面卻無條件呼叫 .set(),直接 UnboundLocalError 炸掉
+        # ——這是這次 vendor 進來時修的 bug,不是上游原本就有初始化再被
+        # 我們拿掉。改成 None 起始值,迴圈結束後沒抓到的核心明確 set 成
+        # NaN(不是 0.0)——Gauge 沒被 set 過的話 Prometheus 預設值就是
+        # 0.0,如果只是跳過不 set,消費端(backend 的 sync_asus_exporter.py)
+        # 從 /metrics 讀到的還是 0.0,沒辦法分辨「這顆核心真的閒置在
+        # 0%」還是「這台路由器根本沒有第 3/4 顆核心」,算平均值會被拉低。
+        # NaN 才是明確的「這個維度不適用」訊號,見 sync_asus_exporter.py
+        # 的 _build_metrics() 怎麼過濾。
+        cpu1_percent = cpu2_percent = cpu3_percent = cpu4_percent = None
         for data in sanitized_format_cpu:
             try:
                 if "cpu1_total" in data:
@@ -134,10 +146,10 @@ def parse_payload(payload):
             except Exception as e:
                 print(e)
                 print('Something went wrong with the CPU metrics')
-        cpu1_percent_metric.set(cpu1_percent)
-        cpu2_percent_metric.set(cpu2_percent)
-        cpu3_percent_metric.set(cpu3_percent)
-        cpu4_percent_metric.set(cpu4_percent)
+        cpu1_percent_metric.set(cpu1_percent if cpu1_percent is not None else float('nan'))
+        cpu2_percent_metric.set(cpu2_percent if cpu2_percent is not None else float('nan'))
+        cpu3_percent_metric.set(cpu3_percent if cpu3_percent is not None else float('nan'))
+        cpu4_percent_metric.set(cpu4_percent if cpu4_percent is not None else float('nan'))
 
     if "memory_usage" in payload:
         memory_usage_list = payload.split(',')

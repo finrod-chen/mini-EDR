@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from prometheus_client import CollectorRegistry, Gauge, generate_latest
+from prometheus_client.samples import Sample
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -127,6 +128,23 @@ def test_build_metrics_flags_high_cpu_and_memory() -> None:
     assert alert is not None
     assert "CPU 使用率過高" in alert
     assert "記憶體使用率過高" in alert
+
+
+def test_build_metrics_ignores_nan_cpu_cores_on_routers_with_fewer_than_4_cores() -> None:
+    # 少於 4 核心的路由器,exporter 對不存在的核心明確回報 NaN(見
+    # deploy/asus-exporter/asus-exporter.py 的說明),不是 0.0——如果誤把
+    # NaN 當 0% 算進平均,雙核心路由器的 CPU 使用率會被腰斬。
+    families = {
+        "uptime": [Sample("uptime", {}, 1.0)],
+        "cpu1_percent": [Sample("cpu1_percent", {}, 20.0)],
+        "cpu2_percent": [Sample("cpu2_percent", {}, 40.0)],
+        "cpu3_percent": [Sample("cpu3_percent", {}, float("nan"))],
+        "cpu4_percent": [Sample("cpu4_percent", {}, float("nan"))],
+    }
+
+    _, metric_data, _ = _build_metrics(families)
+
+    assert {"label": "CPU 使用率", "value": "30%"} in metric_data
 
 
 def test_build_metrics_missing_uptime_returns_none() -> None:

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -92,10 +93,14 @@ def _build_metrics(
     if uptime_samples:
         uptime_seconds = int(uptime_samples[0].value)
 
+    # 少於 4 核心的路由器,沒有的核心 exporter 會明確回報 NaN(不是 0.0
+    # ——Gauge 沒被 set 過預設就是 0.0,無法分辨「真的閒置在 0%」還是
+    # 「這台路由器沒有這顆核心」,見 deploy/asus-exporter/asus-exporter.py
+    # 的說明),這裡要濾掉 NaN,不然平均值會被不存在的核心拉低。
     cpu_values = [
         families[name][0].value
         for name in ("cpu1_percent", "cpu2_percent", "cpu3_percent", "cpu4_percent")
-        if families.get(name)
+        if families.get(name) and not math.isnan(families[name][0].value)
     ]
     if cpu_values:
         cpu_avg = round(sum(cpu_values) / len(cpu_values))

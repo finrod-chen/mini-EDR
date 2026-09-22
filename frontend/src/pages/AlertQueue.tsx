@@ -1,12 +1,13 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { LoadingOverlay } from '../components/LoadingOverlay'
-import { ApiError, apiGet, apiPost } from '../lib/api'
+import { ApiError, apiDelete, apiGet, apiPost } from '../lib/api'
 import { useAssetIpLookup } from '../lib/assetLookup'
 import { SEVERITY_ORDER, severityRank } from '../lib/severity'
 import type {
   ActionType,
   Alert,
+  AlertSuppression,
   FileClassification,
   RelatedProcessEvent,
   ResponseAction,
@@ -83,6 +84,9 @@ export function AlertQueue() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkPending, setBulkPending] = useState(false)
   const [bulkMessage, setBulkMessage] = useState<string | null>(null)
+  const [suppressions, setSuppressions] = useState<AlertSuppression[]>([])
+  const [suppressionPending, setSuppressionPending] = useState<string | null>(null)
+  const [showSuppressions, setShowSuppressions] = useState(false)
 
   const loadAlerts = useCallback(() => {
     setLoading(true)
@@ -101,6 +105,40 @@ export function AlertQueue() {
     // 「選到看不見的東西」更不容易讓人搞混。
     setSelectedIds(new Set())
   }, [loadAlerts])
+
+  const loadSuppressions = useCallback(() => {
+    return apiGet<AlertSuppression[]>('/api/alerts/suppressions')
+      .then(setSuppressions)
+      .catch(() => {
+        // 抑制清單載入失敗不影響告警佇列的主要功能,面板就先不顯示。
+      })
+  }, [])
+
+  useEffect(() => {
+    // 只有 admin 能解除抑制,清單本身也只給 admin 看——不然一般 viewer
+    // 看到一堆規則名稱/主機但不能做任何事,反而多一份雜訊。
+    if (user?.role === 'admin') void loadSuppressions()
+  }, [user, loadSuppressions])
+
+  const releaseSuppression = async (suppression: AlertSuppression) => {
+    if (
+      !window.confirm(
+        `確定要解除「${suppression.rule_name}」對 ${suppression.host} 的誤判抑制嗎?解除後下次觸發同樣規則會重新開告警。`,
+      )
+    ) {
+      return
+    }
+    setSuppressionPending(suppression.suppression_id)
+    try {
+      await apiDelete(`/api/alerts/suppressions/${suppression.suppression_id}`)
+      setSuppressions((prev) => prev.filter((s) => s.suppression_id !== suppression.suppression_id))
+    } catch {
+      // 解除失敗,重新整理清單讓畫面跟後端狀態對齊,而不是留著看起來已經解除的假象。
+      await loadSuppressions()
+    } finally {
+      setSuppressionPending(null)
+    }
+  }
 
   const sortedAlerts = useMemo(
     () => [...alerts].sort((a, b) => severityRank(a.severity) - severityRank(b.severity)),
@@ -150,6 +188,7 @@ export function AlertQueue() {
       )
       setSelectedIds(new Set())
       await loadAlerts()
+      if (actionType === 'mark_false_positive' && user?.role === 'admin') await loadSuppressions()
     } finally {
       setBulkPending(false)
     }
@@ -207,6 +246,7 @@ export function AlertQueue() {
         setActionMessage((prev) => ({ ...prev, [alert.alert_id]: message }))
       }
       await loadAlerts()
+      if (actionType === 'mark_false_positive' && user?.role === 'admin') await loadSuppressions()
     } catch (err) {
       const message = err instanceof ApiError ? err.message : '執行失敗'
       setActionMessage((prev) => ({ ...prev, [alert.alert_id]: message }))
@@ -278,6 +318,47 @@ export function AlertQueue() {
           </select>
         </label>
       </div>
+
+      {user?.role === 'admin' && suppressions.length > 0 && (
+        <div className="detail-panel" style={{ marginBottom: 16 }}>
+          <div className="btn-row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+            <strong>誤判抑制中的規則({suppressions.length})</strong>
+            <button className="btn btn--ghost btn--sm" onClick={() => setShowSuppressions((v) => !v)}>
+              {showSuppressions ? '收合' : '展開'}
+            </button>
+          </div>
+          {showSuppressions && (
+            <table className="data-table" style={{ marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th>規則名稱</th>
+                  <th>主機 / IP</th>
+                  <th>抑制到期時間</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {suppressions.map((suppression) => (
+                  <tr key={suppression.suppression_id}>
+                    <td>{suppression.rule_name}</td>
+                    <td>{assetLookup.get(suppression.host) ?? suppression.host}</td>
+                    <td className="text-muted">{new Date(suppression.suppressed_until).toLocaleString()}</td>
+                    <td>
+                      <button
+                        className="btn btn--sm btn--outline"
+                        disabled={suppressionPending === suppression.suppression_id}
+                        onClick={() => void releaseSuppression(suppression)}
+                      >
+                        解除抑制
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {user?.role === 'admin' && selectedIds.size > 0 && (
         <div className="toolbar" style={{ alignItems: 'center' }}>

@@ -44,6 +44,14 @@ export interface BlockedIp {
   timeout_seconds: number | null
 }
 
+export interface AlertSuppression {
+  suppression_id: string
+  rule_name: string
+  host: string
+  suppressed_until: string
+  created_at: string
+}
+
 export interface ResponseAction {
   action_id: string
   alert_id: string | null

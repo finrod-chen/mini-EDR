@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import httpx
@@ -15,7 +15,7 @@ from app.api.response_actions import ResponseActionOut, to_response_action_out
 from app.core.auth import UserSession, get_current_user, require_admin
 from app.core.config import settings
 from app.core.db import get_db
-from app.models.alert import Alert
+from app.models.alert import Alert, AlertSuppression
 from app.models.events import ProcessEvent
 from app.models.response_action import ResponseAction
 from app.services import ai_explain, file_verification, pan_os_remediation, velociraptor_remediation
@@ -94,6 +94,38 @@ ActionType = Literal[
 _STATUS_BY_LOCAL_ACTION = {"ignore": "resolved", "mark_false_positive": "false_positive"}
 
 
+def _suppress_false_positive(db: Session, alert: Alert) -> None:
+    """標記誤判時 upsert 一筆抑制紀錄(見 app/rules/engine.py 的 is_suppressed)。
+
+    rule_name/host 缺一就沒辦法有意義地抑制未來的告警(規則引擎的 dedup key
+    就是這兩個),直接跳過,alert 狀態照樣會改成 false_positive,只是不會
+    抑制。
+    """
+    if not alert.rule_name or not alert.host:
+        return
+
+    until = datetime.now(UTC) + timedelta(days=settings.false_positive_suppression_days)
+    existing = db.execute(
+        select(AlertSuppression).where(
+            AlertSuppression.rule_name == alert.rule_name,
+            AlertSuppression.host == alert.host,
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        existing.suppressed_until = until
+        existing.source_alert_id = alert.alert_id
+    else:
+        db.add(
+            AlertSuppression(
+                rule_name=alert.rule_name,
+                host=alert.host,
+                suppressed_until=until,
+                source_alert_id=alert.alert_id,
+                created_at=datetime.now(UTC),
+            )
+        )
+
+
 class PerformActionRequest(BaseModel):
     action_type: ActionType
     pid: int | None = None  # 只有 action_type="kill_process" 需要
@@ -152,6 +184,8 @@ def perform_action(
             # ignore / mark_false_positive:不呼叫 Velociraptor,純粹改狀態。
             result = "ok"
             new_status = _STATUS_BY_LOCAL_ACTION[body.action_type]
+            if body.action_type == "mark_false_positive":
+                _suppress_false_positive(db, alert)
     except velociraptor_remediation.ClientNotFoundError as exc:
         result = f"failed: {exc}"
     except pan_os_remediation.PanOsApiError as exc:
@@ -204,3 +238,45 @@ def explain_alert(
     db.commit()
     db.refresh(alert)
     return alert
+
+
+class AlertSuppressionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    suppression_id: uuid.UUID
+    rule_name: str
+    host: str
+    suppressed_until: datetime
+    created_at: datetime
+
+
+@router.get("/suppressions", response_model=list[AlertSuppressionOut])
+def list_suppressions(
+    db: Session = Depends(get_db),
+    _user: UserSession = Depends(get_current_user),
+) -> list[AlertSuppression]:
+    """目前還在誤判抑制期內的 (rule_name, host) 清單,給分析師檢視/覆蓋用。
+
+    過期的紀錄留在表裡不清,單純用 suppressed_until 過濾掉,不影響
+    is_suppressed() 的判斷邏輯。
+    """
+    stmt = (
+        select(AlertSuppression)
+        .where(AlertSuppression.suppressed_until > datetime.now(UTC))
+        .order_by(AlertSuppression.suppressed_until)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+@router.delete("/suppressions/{suppression_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_suppression(
+    suppression_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _user: UserSession = Depends(require_admin),
+) -> None:
+    """解除抑制,讓同一 (rule_name, host) 下次觸發規則時正常開新 alert。"""
+    suppression = db.get(AlertSuppression, suppression_id)
+    if suppression is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "suppression not found")
+    db.delete(suppression)
+    db.commit()

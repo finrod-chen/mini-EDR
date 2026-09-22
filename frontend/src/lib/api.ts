@@ -56,6 +56,10 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   })
 }
 
+export function apiDelete<T>(path: string): Promise<T> {
+  return apiFetch<T>(path, { method: 'DELETE' })
+}
+
 export function loginUrl(): string {
   return `${API_BASE_URL}/auth/login`
 }

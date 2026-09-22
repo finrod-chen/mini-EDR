@@ -9,6 +9,12 @@ alert 存在,就不會再開新的一筆。事件型規則(例如某次 PowerShe
 -EncodedCommand)與持續性條件規則(例如資產逾期未回報)共用同一套 dedup,
 效果等同「同一個問題在分析師結案前不會洗版」——這是常見告警系統的簡化
 做法,細分事件型/條件型各自的去重邏輯留給之後有實際洗版問題再優化。
+
+抑制策略:除了 dedup,還會查 alert_suppressions 表(見
+app/models/alert.py 的 AlertSuppression)——分析師把某個 (rule_name, host)
+標記誤判時會寫入一筆,到期(suppressed_until)之前同一組合再次觸發不會
+開新 alert。這是「誤判」跟單純「忽略」在系統行為上唯一的差異,忽略不會
+影響這裡。
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.alert import Alert
+from app.models.alert import Alert, AlertSuppression
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +41,23 @@ class Rule:
     fn: Callable[[Session], list[str]]  # 回傳目前觸發這條規則的主機清單
 
 
-def create_alert_if_not_open(
-    session: Session, *, rule_name: str, host: str, severity: str
-) -> bool:
-    """host 對這條規則已經有未結案的 alert 就不重複開,回傳是否真的新開了一筆。"""
+def is_suppressed(session: Session, *, rule_name: str, host: str) -> bool:
+    """host 對這條規則是否有還沒到期的誤判抑制紀錄。"""
+    existing = session.execute(
+        select(AlertSuppression.suppression_id).where(
+            AlertSuppression.rule_name == rule_name,
+            AlertSuppression.host == host,
+            AlertSuppression.suppressed_until > datetime.now(UTC),
+        )
+    ).first()
+    return existing is not None
+
+
+def create_alert_if_not_open(session: Session, *, rule_name: str, host: str, severity: str) -> bool:
+    """host 對這條規則已經有未結案的 alert,或還在誤判抑制期內,就不開新的一筆。
+
+    回傳是否真的新開了一筆。
+    """
     existing = session.execute(
         select(Alert.alert_id).where(
             Alert.rule_name == rule_name,
@@ -47,6 +66,9 @@ def create_alert_if_not_open(
         )
     ).first()
     if existing is not None:
+        return False
+
+    if is_suppressed(session, rule_name=rule_name, host=host):
         return False
 
     session.add(

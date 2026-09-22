@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     # 不要無限累積。設成 0 才是永久(照 PAN-OS 原本的語意),需要真的想永久
     # 封鎖再手動改。
     panos_block_timeout_seconds: int = 86400
+    # 告警標記誤判後,同一 (rule_name, host) 抑制幾天不再開新 alert(見
+    # app/models/alert.py 的 AlertSuppression、app/rules/engine.py)。給
+    # 到期時間而不是永久 allowlist,避免同一條規則、同一台主機之後的真實
+    # 事件被永久靜音。
+    false_positive_suppression_days: int = 14
     # 即時掃描偵測門檻,走 Settings 不寫死常數——上線後很可能要依實際流量
     # 調整,不用改程式碼重新 build(比照 app/rules/definitions.py 對規則
     # 門檻值「預期之後要調」的既有態度)。

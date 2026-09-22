@@ -3,12 +3,12 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.models.alert import Alert
+from app.models.alert import Alert, AlertSuppression
 from app.models.asset import AssetInventory
 from app.models.base import Base
 from app.models.events import DefenderEvent, ProcessEvent
 from app.rules import definitions as rules
-from app.rules.engine import Rule, create_alert_if_not_open, run_all_rules
+from app.rules.engine import Rule, create_alert_if_not_open, is_suppressed, run_all_rules
 
 NOW = datetime.now(UTC)
 
@@ -179,6 +179,65 @@ def test_create_alert_if_not_open_allows_new_alert_after_resolved() -> None:
 
     assert created_again is True
     assert len(session.execute(select(Alert)).scalars().all()) == 2
+
+
+def test_create_alert_if_not_open_blocked_by_active_suppression() -> None:
+    session = make_session()
+    session.add(
+        AlertSuppression(
+            rule_name="test-rule",
+            host="PC-01",
+            suppressed_until=NOW + timedelta(days=1),
+            created_at=NOW,
+        )
+    )
+    session.commit()
+
+    created = create_alert_if_not_open(
+        session, rule_name="test-rule", host="PC-01", severity="High"
+    )
+    session.commit()
+
+    assert created is False
+    assert len(session.execute(select(Alert)).scalars().all()) == 0
+
+
+def test_create_alert_if_not_open_allows_after_suppression_expires() -> None:
+    session = make_session()
+    session.add(
+        AlertSuppression(
+            rule_name="test-rule",
+            host="PC-01",
+            suppressed_until=NOW - timedelta(days=1),  # 已過期
+            created_at=NOW - timedelta(days=15),
+        )
+    )
+    session.commit()
+
+    created = create_alert_if_not_open(
+        session, rule_name="test-rule", host="PC-01", severity="High"
+    )
+    session.commit()
+
+    assert created is True
+    assert len(session.execute(select(Alert)).scalars().all()) == 1
+
+
+def test_is_suppressed_does_not_affect_other_hosts_or_rules() -> None:
+    session = make_session()
+    session.add(
+        AlertSuppression(
+            rule_name="test-rule",
+            host="PC-01",
+            suppressed_until=NOW + timedelta(days=1),
+            created_at=NOW,
+        )
+    )
+    session.commit()
+
+    assert is_suppressed(session, rule_name="test-rule", host="PC-01") is True
+    assert is_suppressed(session, rule_name="test-rule", host="PC-02") is False
+    assert is_suppressed(session, rule_name="other-rule", host="PC-01") is False
 
 
 def test_run_all_rules_aggregates_counts_and_survives_a_failing_rule() -> None:

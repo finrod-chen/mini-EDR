@@ -1,4 +1,4 @@
-from app.models.alert import Alert
+from app.models.alert import Alert, AlertSuppression
 from app.models.asset import AssetInventory, SoftwareInventory
 from app.models.base import Base
 from app.models.events import DefenderEvent, NetworkEvent, ProcessEvent
@@ -13,6 +13,7 @@ __all__ = [
     "NetworkEvent",
     "DefenderEvent",
     "Alert",
+    "AlertSuppression",
     "ResponseAction",
     "User",
 ]

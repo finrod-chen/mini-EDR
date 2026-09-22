@@ -13,7 +13,7 @@ from app.core.auth import UserSession, get_current_user
 from app.core.config import settings
 from app.core.db import get_db
 from app.main import app
-from app.models.alert import Alert
+from app.models.alert import Alert, AlertSuppression
 from app.models.base import Base
 from app.models.events import ProcessEvent
 from app.models.response_action import ResponseAction
@@ -97,6 +97,134 @@ def test_mark_false_positive_updates_status(admin_client: TestClient, session: S
     assert response.status_code == 200
     session.refresh(alert)
     assert alert.status == "false_positive"
+
+
+def test_mark_false_positive_creates_suppression(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session, host="PC-01")
+    before = datetime.now(UTC)
+
+    admin_client.post(
+        f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "mark_false_positive"}
+    )
+
+    suppression = session.execute(select(AlertSuppression)).scalar_one()
+    assert suppression.rule_name == alert.rule_name
+    assert suppression.host == "PC-01"
+    assert suppression.source_alert_id == alert.alert_id
+    assert suppression.suppressed_until.replace(tzinfo=UTC) > before + timedelta(
+        days=settings.false_positive_suppression_days - 1
+    )
+
+
+def test_mark_false_positive_without_host_does_not_create_suppression(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session, host=None)
+
+    response = admin_client.post(
+        f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "mark_false_positive"}
+    )
+
+    assert response.status_code == 200
+    session.refresh(alert)
+    assert alert.status == "false_positive"
+    assert session.execute(select(AlertSuppression)).scalars().all() == []
+
+
+def test_mark_false_positive_twice_refreshes_existing_suppression(
+    admin_client: TestClient, session: Session
+) -> None:
+    alert = add_alert(session, host="PC-01")
+    admin_client.post(
+        f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "mark_false_positive"}
+    )
+    first = session.execute(select(AlertSuppression)).scalar_one()
+    first_until = first.suppressed_until
+
+    other_alert = add_alert(session, host="PC-01")
+    admin_client.post(
+        f"/api/alerts/{other_alert.alert_id}/actions", json={"action_type": "mark_false_positive"}
+    )
+
+    suppressions = session.execute(select(AlertSuppression)).scalars().all()
+    assert len(suppressions) == 1  # 同一 (rule_name, host) upsert,不會累積多筆
+    assert suppressions[0].source_alert_id == other_alert.alert_id
+    assert suppressions[0].suppressed_until >= first_until
+
+
+def test_ignore_does_not_create_suppression(admin_client: TestClient, session: Session) -> None:
+    alert = add_alert(session, host="PC-01")
+    admin_client.post(f"/api/alerts/{alert.alert_id}/actions", json={"action_type": "ignore"})
+
+    assert session.execute(select(AlertSuppression)).scalars().all() == []
+
+
+def test_list_suppressions_only_returns_active_ones(
+    viewer_client: TestClient, session: Session
+) -> None:
+    now = datetime.now(UTC)
+    session.add_all(
+        [
+            AlertSuppression(
+                rule_name="r-active",
+                host="PC-01",
+                suppressed_until=now + timedelta(days=1),
+                created_at=now,
+            ),
+            AlertSuppression(
+                rule_name="r-expired",
+                host="PC-02",
+                suppressed_until=now - timedelta(days=1),
+                created_at=now - timedelta(days=20),
+            ),
+        ]
+    )
+    session.commit()
+
+    response = viewer_client.get("/api/alerts/suppressions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["rule_name"] == "r-active"
+
+
+def test_delete_suppression_requires_admin(viewer_client: TestClient, session: Session) -> None:
+    now = datetime.now(UTC)
+    suppression = AlertSuppression(
+        rule_name="r", host="PC-01", suppressed_until=now + timedelta(days=1), created_at=now
+    )
+    session.add(suppression)
+    session.commit()
+    session.refresh(suppression)
+
+    response = viewer_client.delete(f"/api/alerts/suppressions/{suppression.suppression_id}")
+
+    assert response.status_code == 403
+
+
+def test_delete_suppression_removes_it_and_unblocks_new_alerts(
+    admin_client: TestClient, session: Session
+) -> None:
+    now = datetime.now(UTC)
+    suppression = AlertSuppression(
+        rule_name="r", host="PC-01", suppressed_until=now + timedelta(days=1), created_at=now
+    )
+    session.add(suppression)
+    session.commit()
+    session.refresh(suppression)
+
+    response = admin_client.delete(f"/api/alerts/suppressions/{suppression.suppression_id}")
+
+    assert response.status_code == 204
+    assert session.execute(select(AlertSuppression)).scalars().all() == []
+
+
+def test_delete_unknown_suppression_returns_404(admin_client: TestClient) -> None:
+    response = admin_client.delete("/api/alerts/suppressions/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 404
 
 
 def test_kill_process_without_pid_is_rejected(admin_client: TestClient, session: Session) -> None:
@@ -253,9 +381,7 @@ def test_verify_file_success_does_not_change_alert_status(
         detected_extensions=["ini"],
         extension_mismatch=False,
     )
-    with patch.object(
-        file_verification, "verify_file", return_value=classification
-    ) as mocked:
+    with patch.object(file_verification, "verify_file", return_value=classification) as mocked:
         response = admin_client.post(
             f"/api/alerts/{alert.alert_id}/actions",
             json={"action_type": "verify_file", "file_path": "C:\\Windows\\win.ini"},
@@ -337,9 +463,7 @@ def test_related_events_returns_process_events_in_time_window(
             image="C:\\Windows\\explorer.exe",
         )
     )
-    session.add(
-        ProcessEvent(timestamp=alert_time, hostname="PC-99", pid=1, image="C:\\other.exe")
-    )
+    session.add(ProcessEvent(timestamp=alert_time, hostname="PC-99", pid=1, image="C:\\other.exe"))
     session.commit()
     session.refresh(alert)
 
@@ -354,7 +478,5 @@ def test_related_events_returns_process_events_in_time_window(
 
 
 def test_related_events_unknown_alert_returns_404(viewer_client: TestClient) -> None:
-    response = viewer_client.get(
-        "/api/alerts/00000000-0000-0000-0000-000000000000/related-events"
-    )
+    response = viewer_client.get("/api/alerts/00000000-0000-0000-0000-000000000000/related-events")
     assert response.status_code == 404

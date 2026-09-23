@@ -11,6 +11,7 @@ from app.api.auth import router as auth_router
 from app.api.firewall import router as firewall_router
 from app.api.health import router as health_router
 from app.api.response_actions import router as response_actions_router
+from app.api.syslog import router as syslog_router
 from app.core.config import settings
 from app.jobs import scheduler
 from app.services import syslog_listener
@@ -48,3 +49,4 @@ app.include_router(alerts_router)
 app.include_router(response_actions_router)
 app.include_router(assets_router)
 app.include_router(firewall_router)
+app.include_router(syslog_router)

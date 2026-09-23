@@ -105,3 +105,13 @@ export interface Software {
   publisher: string | null
   install_date: string | null
 }
+
+export type SyslogSourceType = 'pan410' | 'synology_nas' | 'other'
+
+export interface SyslogMessage {
+  id: number
+  received_at: string
+  source_ip: string | null
+  source_type: SyslogSourceType | null
+  raw_message: string | null
+}

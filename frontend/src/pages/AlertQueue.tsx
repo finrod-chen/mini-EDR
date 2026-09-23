@@ -30,14 +30,20 @@ const HIGH_RISK_ACTION_BUTTONS: { type: ActionType; label: string; confirm?: str
   { type: 'kill_process', label: '砍進程' },
 ]
 
-// PA-410 syslog 掃描偵測(見 backend app/services/syslog_listener.py)觸發的
-// 告警,host 欄位放的是攻擊來源 IP,不是主機名——封鎖按鈕只該對這幾種
-// rule_name 出現,其他告警的 host 是主機名,對 PAN-OS 封鎖沒有意義。
-// rule_name 常數必須跟後端 syslog_listener.py 的 RULE_NAME_* 完全一致。
+// PA-410 syslog 掃描偵測、以及 Synology NAS 登入相關偵測(見 backend
+// app/services/syslog_listener.py/synology_log_analyzer.py)觸發的告警,
+// host 欄位放的是攻擊來源 IP,不是主機名——封鎖按鈕只該對這幾種
+// rule_name 出現,其他告警的 host 是主機名(或 Synology 大量刪除/搬移
+// 檔案那條規則的 host 是 NAS 自己),對 PAN-OS 封鎖沒有意義。
+// rule_name 常數必須跟後端 syslog_listener.py 的 RULE_NAME_*、
+// synology_log_analyzer.py 的 RULE_NAME_* 完全一致。
 const FIREWALL_RULE_NAMES = new Set([
   'PA-410 疑似連接埠掃描',
   'PA-410 疑似主機掃描',
   'PA-410 Threat Log 掃描/偵察特徵',
+  'PA-410 Threat Log 高風險事件',
+  'Synology NAS 登入失敗次數異常(疑似暴力破解)',
+  'Synology NAS 疑似暴力破解成功登入',
 ])
 
 function highRiskActionButtonsFor(

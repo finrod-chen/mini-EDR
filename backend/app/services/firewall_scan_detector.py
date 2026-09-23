@@ -5,13 +5,18 @@ Threat log 掃描特徵)。純邏輯、無 I/O——不呼叫 SNMP/DB/網路,方
 `now` 一律由呼叫端傳入,這個模組內部不呼叫 datetime.now(),延續
 sync_snmp_assets.py 已經用過的「注入時間/結果方便測試」慣例。
 
-三個偵測路徑對應使用者確認的範圍:
+四個偵測路徑對應使用者確認的範圍:
 - port scan:同一來源 IP 在時間視窗內對「同一個目的主機」連到過多不同
   連接埠
 - host sweep:同一來源 IP 在時間視窗內連到過多不同「內網」目的主機
 - Threat log 掃描特徵:PAN-OS 自己的 threat 引擎已經把某個連線標成
   subtype="scan",直接信任這個判斷、立即觸發,不需要累積視窗——這是
   簽章比對出來的結果,不是我們自己發明的門檻式判斷。
+- Threat log 高風險事件:subtype 不是 "scan",但 PAN-OS 判定的嚴重度是
+  high/critical——這是補的缺口,原本只有 subtype=="scan" 才會觸發
+  alert,代表 PAN-OS 自己抓到的真正惡意程式/漏洞攻擊(非掃描類)完全
+  沒有變成 alert,直接被丟掉;跟 subtype=="scan" 一樣不需要累積視窗,
+  一樣是簽章比對出來的結果。
 
 這兩個門檻式判斷(port scan / host sweep)都是實機上線後第一批真實流量
 就抓到誤判、修正過的:
@@ -40,6 +45,15 @@ from datetime import datetime, timedelta
 
 # PAN-OS Threat log 的 subtype 值,"scan" 是官方文件定義的掃描/偵察分類。
 THREAT_SUBTYPE_SCAN = "scan"
+# record_threat() 回傳的第三個值(kind),呼叫端(syslog_listener.py)用
+# 這個決定 rule_name,不用反過來解析 reason 字串的文字內容。
+THREAT_KIND_SCAN = "scan"
+THREAT_KIND_HIGH_SEVERITY = "high_severity"
+# 非掃描類的 Threat log,嚴重度達這個等級才觸發 alert——中低風險的
+# 非掃描事件只靠原始 syslog 存檔可查,不逐筆開 alert(見
+# app/services/syslog_listener.py 現在會把每一行原始 log 都存進
+# syslog_messages)。
+_HIGH_SEVERITY_LEVELS = frozenset({"High", "Critical"})
 
 _EVICTION_CHECK_INTERVAL = timedelta(seconds=60)
 
@@ -158,13 +172,26 @@ class ScanDetector:
 
     def record_threat(
         self, *, src_ip: str, subtype: str, category: str, threatid: str, severity: str
-    ) -> tuple[str, str] | None:
-        """回傳 (原因字串, 對應到本專案 Severity 的字串) 的 tuple,沒觸發回
-        None。跟 record_traffic 不同,這裡不需要 now/累積視窗——PAN-OS
-        自己的簽章引擎已經判斷完了,這裡只是把結果轉換成本專案的格式。"""
-        if subtype != THREAT_SUBTYPE_SCAN:
-            return None
+    ) -> tuple[str, str, str] | None:
+        """回傳 (原因字串, 對應到本專案 Severity 的字串, kind) 的 tuple,
+        沒觸發回 None。跟 record_traffic 不同,這裡不需要 now/累積視窗
+        ——PAN-OS 自己的簽章引擎已經判斷完了,這裡只是把結果轉換成本專案
+        的格式。subtype=="scan" 優先判斷,不會同時被兩種 kind 判定命中。
+        """
+        mapped_severity = _severity_from_panos(severity)
         category_text = category or "未知"
         threatid_text = threatid or "未知"
-        reason = f"PAN-OS 判定為掃描/偵察特徵(category={category_text}, threatid={threatid_text})"
-        return reason, _severity_from_panos(severity)
+
+        if subtype == THREAT_SUBTYPE_SCAN:
+            reason = (
+                f"PAN-OS 判定為掃描/偵察特徵(category={category_text}, threatid={threatid_text})"
+            )
+            return reason, mapped_severity, THREAT_KIND_SCAN
+
+        if mapped_severity in _HIGH_SEVERITY_LEVELS:
+            reason = (
+                f"PAN-OS Threat Log 高風險事件(category={category_text}, threatid={threatid_text})"
+            )
+            return reason, mapped_severity, THREAT_KIND_HIGH_SEVERITY
+
+        return None

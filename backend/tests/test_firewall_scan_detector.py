@@ -1,6 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
-from app.services.firewall_scan_detector import ScanDetector
+from app.services.firewall_scan_detector import (
+    THREAT_KIND_HIGH_SEVERITY,
+    THREAT_KIND_SCAN,
+    ScanDetector,
+)
 
 _BASE = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -153,17 +157,45 @@ def test_threat_scan_subtype_triggers_immediately() -> None:
         src_ip="1.2.3.4", subtype="scan", category="recon", threatid="40001", severity="high"
     )
     assert result is not None
-    reason, severity = result
+    reason, severity, kind = result
     assert "掃描" in reason
     assert severity == "High"
+    assert kind == THREAT_KIND_SCAN
 
 
-def test_threat_non_scan_subtype_does_not_trigger() -> None:
+def test_threat_non_scan_low_severity_does_not_trigger() -> None:
     detector = make_detector()
     result = detector.record_threat(
-        src_ip="1.2.3.4", subtype="virus", category="malware", threatid="1", severity="high"
+        src_ip="1.2.3.4", subtype="virus", category="malware", threatid="1", severity="medium"
     )
     assert result is None
+
+
+def test_threat_non_scan_high_severity_triggers_as_high_severity_threat() -> None:
+    # 補的缺口:非掃描類、但 PAN-OS 自己判定 high/critical 的 Threat log
+    # (真正的惡意程式/漏洞攻擊命中)也要變成 alert,不能因為不是
+    # subtype=="scan" 就整個被丟掉。
+    detector = make_detector()
+    result = detector.record_threat(
+        src_ip="1.2.3.4", subtype="virus", category="malware", threatid="1", severity="critical"
+    )
+    assert result is not None
+    reason, severity, kind = result
+    assert "高風險" in reason
+    assert severity == "Critical"
+    assert kind == THREAT_KIND_HIGH_SEVERITY
+
+
+def test_threat_scan_subtype_takes_priority_over_severity_kind() -> None:
+    # subtype=="scan" 且嚴重度也達 high/critical 時,要回報 scan 這個
+    # 更明確的分類,不是 high_severity。
+    detector = make_detector()
+    result = detector.record_threat(
+        src_ip="1.2.3.4", subtype="scan", category="recon", threatid="1", severity="critical"
+    )
+    assert result is not None
+    _, _, kind = result
+    assert kind == THREAT_KIND_SCAN
 
 
 def test_threat_severity_mapping() -> None:
@@ -180,7 +212,7 @@ def test_threat_severity_mapping() -> None:
             src_ip="1.2.3.4", subtype="scan", category="c", threatid="t", severity=panos_severity
         )
         assert result is not None
-        _, severity = result
+        _, severity, _ = result
         assert severity == expected
 
 

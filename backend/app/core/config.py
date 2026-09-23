@@ -56,12 +56,16 @@ class Settings(BaseSettings):
     asus_exporter_targets_config_path: str = "../deploy/asus_exporter/asus_targets.json"
     asus_exporter_timeout_seconds: float = 5.0
 
-    # PA-410 syslog 掃描偵測 + 人工一鍵封鎖(見 app/services/syslog_listener.py
-    # /firewall_scan_detector.py/pan_os_remediation.py)。只有這一台防火牆
-    # 需要,不是通用 syslog 收集平台。
+    # syslog 接收(見 app/services/syslog_listener.py)。同一個 UDP port
+    # 現在收兩種來源:PA-410(掃描偵測 + 人工一鍵封鎖,見
+    # firewall_scan_detector.py/pan_os_remediation.py)跟 Synology NAS
+    # (登入失敗/暴力破解成功/大量刪除搬移檔案,見
+    # synology_log_analyzer.py)。不管來源、也不管有沒有命中任何分析
+    # 規則,原始內容一律先存進 syslog_messages(見
+    # app/models/syslog_message.py)。
     #
-    # 監聽 port 故意不用特權的 514(容器內不用 root 就能 bind),PA-410 端
-    # 的 syslog server profile 要設定送到這個 port。
+    # 監聽 port 故意不用特權的 514(容器內不用 root 就能 bind),PA-410
+    # 端的 syslog server profile、DSM 的記錄傳送設定都要指到這個 port。
     syslog_listen_host: str = "0.0.0.0"
     syslog_listen_port: int = 5514
     # PAN-OS User-ID API(封鎖動作用)。管理介面通常是自簽憑證,內網限定,
@@ -96,6 +100,31 @@ class Settings(BaseSettings):
     # 記憶體內的來源 IP 追蹤狀態,超過這個秒數沒有新活動就清掉,避免無限
     # 累積。
     syslog_state_ttl_seconds: int = 300
+
+    # Synology NAS 送過來的 syslog 判斷來源用(見 syslog_listener.py 的
+    # classify_source())。PA-410 是靠內容判斷(type="TRAFFIC"/"THREAT"),
+    # Synology 的內容格式完全不是 key=value,只能靠來源 IP 認——空字串 =
+    # 不比對,送進來的非 PA-410 內容一律歸類 other(只存原始 log,不跑
+    # 分析)。
+    synology_nas_syslog_source_ip: str = ""
+    # 登入失敗次數異常(疑似暴力破解)的門檻/視窗。
+    synology_login_failure_threshold: int = 5
+    synology_login_failure_window_seconds: int = 300
+    # 「先失敗好幾次接著成功」判定為暴力破解成功登入的門檻——刻意比上面
+    # 的純失敗告警門檻低,因為這個模式本身就是更明確的危險訊號,不用等到
+    # 失敗次數也達到 synology_login_failure_threshold。
+    synology_malicious_login_recent_failures: int = 3
+    # 大量刪除/搬移檔案的門檻/視窗。這是先抓的起始值,不同使用情境(例如
+    # 管理員整理資料夾、備份工具跑批次刪除)可能誤判,預期上線後要依實際
+    # 狀況調整——誤判可以用 mark_false_positive 的抑制機制降噪(見
+    # app/models/alert.py 的 AlertSuppression),門檻本身不用急著改。
+    synology_file_op_threshold: int = 20
+    synology_file_op_window_seconds: int = 60
+    # 跟 syslog_state_ttl_seconds 是同一種用途,獨立一個值是因為 Synology
+    # 分析器(SynologyLogAnalyzer)是跟 ScanDetector 分開的物件、各自管理
+    # 自己的記憶體內狀態,不共用同一個 TTL 設定也不影響正確性,只是剛好
+    # 目前預設值一樣。
+    synology_state_ttl_seconds: int = 300
 
     # AI Alert Explain(Phase 6,選配,見 app/services/ai_explain.py)。
     # 走 OpenAI-compatible 的 /chat/completions REST 介面,不綁定特定供應商

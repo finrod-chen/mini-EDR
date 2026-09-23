@@ -6,6 +6,7 @@ import { AssetManagement } from './pages/AssetManagement'
 import { FirewallBlocklist } from './pages/FirewallBlocklist'
 import { Login } from './pages/Login'
 import { ResponseLog } from './pages/ResponseLog'
+import { SyslogViewer } from './pages/SyslogViewer'
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
                 <Route path="/response-actions" element={<ResponseLog />} />
                 <Route path="/firewall-blocklist" element={<FirewallBlocklist />} />
                 <Route path="/assets" element={<AssetManagement />} />
+                <Route path="/syslog" element={<SyslogViewer />} />
               </Routes>
             </Layout>
           </ProtectedRoute>

@@ -4,10 +4,22 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.services.syslog_listener as listener_module
+from app.core.config import settings
 from app.models.alert import Alert
 from app.models.base import Base
+from app.models.syslog_message import SyslogMessage
 from app.services.firewall_scan_detector import ScanDetector
-from app.services.syslog_listener import handle_fields, parse_line
+from app.services.synology_log_analyzer import SynologyLogAnalyzer
+from app.services.syslog_listener import (
+    SOURCE_TYPE_OTHER,
+    SOURCE_TYPE_PAN410,
+    SOURCE_TYPE_SYNOLOGY_NAS,
+    classify_source,
+    handle_fields,
+    handle_synology_line,
+    parse_line,
+    persist_raw_message,
+)
 
 _BASE = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -28,11 +40,23 @@ def make_detector() -> ScanDetector:
     )
 
 
+def make_synology_analyzer(*, nas_host: str = "192.168.2.185") -> SynologyLogAnalyzer:
+    return SynologyLogAnalyzer(
+        login_failure_threshold=3,
+        login_failure_window=timedelta(seconds=300),
+        malicious_login_recent_failures=2,
+        file_op_threshold=5,
+        file_op_window=timedelta(seconds=60),
+        state_ttl=timedelta(seconds=300),
+        nas_host=nas_host,
+    )
+
+
 def test_parse_line_extracts_key_value_pairs_ignoring_envelope() -> None:
     # 前面模擬真實 syslog 信封(facility/priority/hostname 前綴),不含
     # key="value" 格式,應該被 parse_line 自然忽略。
     line = (
-        '<14>Jan  1 12:00:00 PA-410 '
+        "<14>Jan  1 12:00:00 PA-410 "
         'type="TRAFFIC" subtype="end" src="1.2.3.4" dst="10.0.0.1" '
         'sport="12345" dport="443" proto="tcp" action="allow" rule="Allow-Out"'
     )
@@ -90,3 +114,82 @@ def test_handle_fields_ignores_line_missing_src() -> None:
 def test_handle_fields_ignores_unknown_log_type() -> None:
     detector = make_detector()
     handle_fields(detector, {"type": "SYSTEM", "src": "1.2.3.4"}, _BASE)
+
+
+def test_handle_fields_high_severity_threat_uses_high_severity_rule_name(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    detector = make_detector()
+    test_session = make_session()
+    monkeypatch.setattr(listener_module, "SessionLocal", lambda: test_session)
+
+    fields = {
+        "type": "THREAT",
+        "src": "1.2.3.4",
+        "subtype": "virus",
+        "category": "malware",
+        "threatid": "1",
+        "severity": "critical",
+    }
+    handle_fields(detector, fields, _BASE)
+
+    alert = test_session.execute(select(Alert)).scalar_one()
+    assert alert.rule_name == "PA-410 Threat Log 高風險事件"
+    assert alert.severity == "Critical"
+
+
+def test_classify_source_by_pan410_content(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(settings, "synology_nas_syslog_source_ip", "192.168.2.185")
+    assert classify_source("10.0.0.1", {"type": "TRAFFIC"}) == SOURCE_TYPE_PAN410
+    assert classify_source("10.0.0.1", {"type": "THREAT"}) == SOURCE_TYPE_PAN410
+
+
+def test_classify_source_by_synology_ip(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(settings, "synology_nas_syslog_source_ip", "192.168.2.185")
+    assert classify_source("192.168.2.185", {}) == SOURCE_TYPE_SYNOLOGY_NAS
+
+
+def test_classify_source_unmatched_is_other(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(settings, "synology_nas_syslog_source_ip", "192.168.2.185")
+    assert classify_source("10.0.0.99", {}) == SOURCE_TYPE_OTHER
+
+
+def test_classify_source_synology_ip_unset_falls_back_to_other(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # 空字串 = 不比對(見 settings.synology_nas_syslog_source_ip 預設值),
+    # 沒設定的話任何非 PA-410 內容都歸 other,不會誤判成 synology_nas。
+    monkeypatch.setattr(settings, "synology_nas_syslog_source_ip", "")
+    assert classify_source("192.168.2.185", {}) == SOURCE_TYPE_OTHER
+
+
+def test_persist_raw_message_writes_every_line(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    test_session = make_session()
+    monkeypatch.setattr(listener_module, "SessionLocal", lambda: test_session)
+
+    persist_raw_message("1.2.3.4", SOURCE_TYPE_PAN410, "some raw line", _BASE)
+
+    row = test_session.execute(select(SyslogMessage)).scalar_one()
+    assert row.source_ip == "1.2.3.4"
+    assert row.source_type == SOURCE_TYPE_PAN410
+    assert row.raw_message == "some raw line"
+    # SQLite 不保留 tzinfo,讀回來是 naive datetime,補回 UTC 才能比較
+    # (跟其他測試對 TIMESTAMP(timezone=True) 欄位的既有比較方式一致)。
+    assert row.received_at.replace(tzinfo=UTC) == _BASE
+
+
+def test_handle_synology_line_creates_alert_on_failure_burst(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    analyzer = make_synology_analyzer()
+    test_session = make_session()
+    monkeypatch.setattr(listener_module, "SessionLocal", lambda: test_session)
+
+    line = "User [admin] failed to log in via [DSM] from [1.2.3.4] using [password]."
+    for i in range(3):
+        handle_synology_line(analyzer, line, _BASE + timedelta(seconds=i))
+
+    alert = test_session.execute(select(Alert)).scalar_one()
+    assert alert.host == "1.2.3.4"
+    assert alert.rule_name == "Synology NAS 登入失敗次數異常(疑似暴力破解)"
+
+
+def test_handle_synology_line_ignores_unrelated_line() -> None:
+    analyzer = make_synology_analyzer()
+    # 不是登入/檔案操作相關的行,不該拋例外、也不該開 DB session(這裡沒
+    # monkeypatch SessionLocal,真的呼叫下去如果有開 session 會失敗)。
+    handle_synology_line(analyzer, "some unrelated log line", _BASE)

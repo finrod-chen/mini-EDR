@@ -5,6 +5,7 @@
 
 - Velociraptor Server 本身的部署細節(首次啟動、改密碼、Sysmon、應變動作
   用的 exchange artifact)→ `deploy/velociraptor/README.md`
+- PA-410 防火牆 / Synology NAS 的 syslog 收集設定 → `deploy/syslog/README.md`
 - 各項環境變數的意義 → 根目錄 `.env.example`
 - 專案整體結構、Phase 對應 → 根目錄 `README.md`
 

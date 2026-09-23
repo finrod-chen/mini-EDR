@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: '/response-actions', label: '應變紀錄' },
   { to: '/firewall-blocklist', label: '防火牆封鎖清單' },
   { to: '/assets', label: '資產管理' },
+  { to: '/syslog', label: 'Syslog 記錄' },
 ]
 
 export function Layout({ children }: { children: ReactNode }) {

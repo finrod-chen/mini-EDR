@@ -151,6 +151,16 @@ p {
   font-size: 0.8125rem;
 }
 
+/* 單行截斷 + ellipsis,給原始 syslog 內容這種可能很長的一整段文字用
+   (見 SyslogViewer.tsx)——蓋掉 .data-table td 預設的 overflow-wrap:
+   anywhere/斷行,改成整行截斷,搭配「詳情」按鈕展開看全文,表格才能
+   維持每列固定高度、方便掃視大量記錄。 */
+.text-truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* ---------------------------------------------------------------------
    Layout primitives
 ------------------------------------------------------------------------ */

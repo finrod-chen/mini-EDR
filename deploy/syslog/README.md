@@ -58,15 +58,21 @@ log type),但目前**沒有**針對 System log 寫對應的即時偵測規則,�
 
 ### 三種分析規則的確定性不一樣
 
+- **大量刪除/搬移檔案**:已經照實機真實輸出調過——透過 SMB 網路磁碟機
+  的檔案操作,DSM 記的 tag 是 `WinFileService`,逗號分隔欄位(不是
+  公開文件常見的 File Station 中括號敘述句),動作值確認是
+  `delete`/`move`,見 `app/services/synology_log_analyzer.py` 模組開頭
+  的真實範例。如果檔案操作主要是透過 File Station 網頁版(不是網路
+  磁碟機)做的,格式可能不一樣,還沒驗證過。
 - **登入失敗 / 暴力破解成功**:抓的是 DSM Connection log 公開文件、
   社群(含 fail2ban 的 Synology filter)廣泛驗證過的固定句型,相對有
-  把握,但沒有拿實機真實輸出驗證過。
-- **大量刪除/搬移檔案**:要靠 DSM 的 File log,句型比登入格式更沒把握
-  (公開來源比較少可以交叉確認)。
+  把握,但**還沒拿實機真實輸出驗證過**(目前只確認過檔案操作跟
+  「存取共用資料夾」這兩種 Connection log 事件,還沒實際觸發過登入
+  失敗/成功的記錄)。
 
-部署後這兩類規則、尤其是檔案操作那條,大概率要照實際跑出來的 log 內容
-再調整 `app/services/synology_log_analyzer.py` 裡的 regex,不會一次到位。
-如果一開始誤判(例如管理員自己整理資料夾觸發「大量刪除/搬移」),用
+如果之後照真實登入記錄發現格式對不上,一樣要調整
+`app/services/synology_log_analyzer.py` 裡的 regex。如果誤判(例如
+管理員自己整理資料夾觸發「大量刪除/搬移」),用
 告警佇列的「標記誤判」就會抑制同一條規則、同一個來源 14 天內不再開新
 alert(見 `AlertSuppression`),不用急著改門檻。
 

@@ -88,9 +88,19 @@ def test_malicious_login_clears_failure_count_to_avoid_repeat_trigger() -> None:
     assert findings == []
 
 
+def _win_file_service_line(action: str, user: str) -> str:
+    # 照實機真實輸出的格式(見 synology_log_analyzer.py 模組開頭的說明),
+    # 不是憑印象猜的。
+    return (
+        f"<14>Sep 24 09:52:54 Xiyue-NAS WinFileService Event: {action}, "
+        f"Path: /007-LAB/a/b.docx, File/Folder: File, Size: 27.35 KB, "
+        f"User: {user}, IP: 192.168.2.53"
+    )
+
+
 def test_file_op_burst_triggers_at_threshold() -> None:
     analyzer = make_analyzer(file_op_threshold=3, nas_host=_NAS_HOST)
-    line = "User [admin] deleted file/folder [/volume1/share/secret.txt]."
+    line = _win_file_service_line("delete", "admin")
     findings = []
     for i in range(3):
         findings = analyzer.record_line(line, _BASE + timedelta(seconds=i))
@@ -103,8 +113,8 @@ def test_file_op_burst_triggers_at_threshold() -> None:
 
 def test_file_op_move_also_counts_toward_threshold() -> None:
     analyzer = make_analyzer(file_op_threshold=2)
-    delete_line = "User [admin] deleted file/folder [/volume1/share/a.txt]."
-    move_line = "User [admin] moved file/folder [/volume1/share/b.txt] to [/volume1/trash/b.txt]."
+    delete_line = _win_file_service_line("delete", "admin")
+    move_line = _win_file_service_line("move", "admin")
 
     analyzer.record_line(delete_line, _BASE)
     findings = analyzer.record_line(move_line, _BASE + timedelta(seconds=1))
@@ -113,17 +123,28 @@ def test_file_op_move_also_counts_toward_threshold() -> None:
     assert findings[0].rule_name == RULE_NAME_FILE_OP_BURST
 
 
+def test_file_op_read_and_create_do_not_count() -> None:
+    # 只有 delete/move 算風險操作,一般的讀取/新增不該累計進門檻。
+    analyzer = make_analyzer(file_op_threshold=2)
+    findings = analyzer.record_line(_win_file_service_line("read", "admin"), _BASE)
+    assert findings == []
+    findings = analyzer.record_line(
+        _win_file_service_line("create", "admin"), _BASE + timedelta(seconds=1)
+    )
+    assert findings == []
+
+
 def test_file_op_below_threshold_does_not_trigger() -> None:
     analyzer = make_analyzer(file_op_threshold=5)
-    line = "User [admin] deleted file/folder [/volume1/share/secret.txt]."
+    line = _win_file_service_line("delete", "admin")
     findings = analyzer.record_line(line, _BASE)
     assert findings == []
 
 
 def test_different_users_file_ops_counted_separately() -> None:
     analyzer = make_analyzer(file_op_threshold=2)
-    alice_line = "User [alice] deleted file/folder [/volume1/share/a.txt]."
-    bob_line = "User [bob] deleted file/folder [/volume1/share/b.txt]."
+    alice_line = _win_file_service_line("delete", "alice")
+    bob_line = _win_file_service_line("delete", "bob")
 
     findings = analyzer.record_line(alice_line, _BASE)
     assert findings == []

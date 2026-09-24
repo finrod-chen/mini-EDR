@@ -4,17 +4,26 @@
 一律由呼叫端傳入,方便單元測試;真正的收發跟寫 alert 在
 app/services/syslog_listener.py。
 
-這幾個 regex 抓的是 DSM Connection log/File log 公開文件、社群(含
+登入失敗/成功的 regex 抓的是 DSM Connection log 公開文件、社群(含
 fail2ban 的 Synology filter)廣泛驗證過的固定句型,例如:
 
     User [admin] failed to log in via [DSM] from [1.2.3.4] using [password].
     User [admin] logged in successfully via [DSM] from [1.2.3.4].
-    User [admin] deleted file/folder [/volume1/share/secret.txt].
 
-但沒有拿使用者實機的真實輸出驗證過——尤其是檔案操作那段,DSM File log
-的確切句型比登入格式更沒把握(登入格式有很多公開來源可以交叉確認,檔案
-操作沒有),部署後很可能要依真實 log 重新調整這幾個 regex,見 deploy
-文件的說明。
+但沒有拿使用者實機的真實輸出驗證過。
+
+檔案操作的 regex 原本也是照公開文件猜的 File Station 格式
+(`User [x] deleted file/folder [...]`),部署後拿實機真實輸出核對發現
+完全猜錯——透過 SMB 網路磁碟機的檔案操作,DSM 記的 tag 是
+`WinFileService`,逗號分隔欄位,不是中括號敘述句,例如:
+
+    WinFileService Event: delete, Path: /007-LAB/a/b.docx, File/Folder: File,
+    Size: 27.35 KB, User: G60113, IP: 192.168.2.53
+    WinFileService Event: move, Path: /a/x.docx -> /b/x.docx, File/Folder: File,
+    Size: 73.17 KB, User: G60125, IP: 192.168.2.69
+
+已經改成照這個真實格式寫,動作值(`delete`/`move`)也是從實機日誌確認過
+的,不是用猜的。
 """
 
 from __future__ import annotations
@@ -30,9 +39,11 @@ RULE_NAME_FILE_OP_BURST = "Synology NAS 大量刪除/搬移檔案"
 
 _FAILED_LOGIN_RE = re.compile(r"failed to log in via \[(\w+)\] from \[([\d.]+)\]")
 _SUCCESS_LOGIN_RE = re.compile(r"logged in successfully via \[(\w+)\] from \[([\d.]+)\]")
-# 只認「刪除/搬移」這兩個動詞,不含「新增/修改」——這次要抓的是使用者
-# 明確點名的風險情境(資料被清空/搬走),不是泛用的檔案異動監控。
-_FILE_OP_RE = re.compile(r"User \[([^\]]+)\] (?:deleted|moved) file/folder")
+# 只認「delete/move」這兩個動作,不含「create/read/rename」——這次要抓的
+# 是使用者明確點名的風險情境(資料被清空/搬走),不是泛用的檔案異動監控
+# (rename 通常是改檔名,不是搬移到別的資料夾,實機日誌裡兩者是分開的
+# 動作值)。
+_FILE_OP_RE = re.compile(r"WinFileService Event: (?:delete|move),.*?User:\s*([^,]+)")
 
 _EVICTION_CHECK_INTERVAL = timedelta(seconds=60)
 

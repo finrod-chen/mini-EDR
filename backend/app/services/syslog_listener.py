@@ -18,11 +18,16 @@ event loop,不如直接用 thread。這個規模的流量也遠遠用不到 asyn
   server profile 支援這個,見 deploy 文件的設定清單),用一個通用 regex
   抽欄位,不用管 PAN-OS 版本的欄位數量/順序差異。
 - Synology NAS:內容格式跟 PAN-OS 完全不同(不是 key=value,是
-  `User [admin] failed to log in via [DSM] from [1.2.3.4] using [password].`
-  這種帶中括號的敘述句),沒辦法用內容判斷,改用來源 IP 比對(見
-  app/core/config.py 的 synology_nas_syslog_source_ip)。
+  `Connection: User [admin] failed to log in via [DSM] from [...]` 這種
+  帶中括號的敘述句),沒辦法用同一套 key=value regex 判斷。**原本想比對
+  UDP 封包的來源 IP,但實機測試發現 Docker 會把進來的封包來源位址重寫成
+  docker bridge 的 gateway IP(不管哪個外部裝置送的,container 看到的
+  source_ip 全部一樣),完全不可靠**——改成比對 syslog 信封裡帶的主機
+  名稱(見 _extract_syslog_hostname(),DSM/PAN-OS 在 BSD syslog 開頭
+  固定會帶自己的主機名稱,不受 Docker NAT 影響,見
+  app/core/config.py 的 synology_nas_syslog_hostname)。
 - 兩者都比對不到:歸類 `other`,只存原始 log、不跑分析。之後要加其他
-  來源,一樣是「多一個 IP 設定 + 一支 analyzer」,不用動這支共用的
+  來源,一樣是「多一個主機名稱設定 + 一支 analyzer」,不用動這支共用的
   收送邏輯。
 """
 
@@ -52,6 +57,11 @@ logger = logging.getLogger(__name__)
 # 也不含這種 token,同樣自然被忽略,回傳空字典。
 _FIELD_RE = re.compile(r'(\w+)="([^"]*)"')
 
+# BSD syslog(RFC 3164)信封:<PRI>Mon DD HH:MM:SS HOSTNAME TAG: message。
+# PA-410/DSM 都遵守這個格式,HOSTNAME 是發送端自己配置的主機名稱,不受
+# Docker NAT 影響(見上面模組說明)。
+_SYSLOG_HOSTNAME_RE = re.compile(r"^<\d+>\S+\s+\d+\s+\d{2}:\d{2}:\d{2}\s+(\S+)\s")
+
 RULE_NAME_PORT_SCAN = "PA-410 疑似連接埠掃描"
 RULE_NAME_HOST_SWEEP = "PA-410 疑似主機掃描"
 RULE_NAME_THREAT_SCAN = "PA-410 Threat Log 掃描/偵察特徵"
@@ -75,15 +85,22 @@ def parse_line(line: str) -> dict[str, str]:
     return dict(_FIELD_RE.findall(line))
 
 
-def classify_source(source_ip: str, fields: dict[str, str]) -> str:
+def _extract_syslog_hostname(raw_line: str) -> str | None:
+    match = _SYSLOG_HOSTNAME_RE.match(raw_line)
+    return match.group(1) if match else None
+
+
+def classify_source(raw_line: str, fields: dict[str, str]) -> str:
     """決定這一行的來源類型,見模組開頭的說明。PA-410 靠內容判斷優先於
-    Synology 的來源 IP 比對——PA-410 的 IP 沒有另外設定一個 settings 值
-    去比對,內容判斷本身已經是既有、零設定升級不會壞掉的路徑。"""
+    Synology 的主機名稱比對——PA-410 沒有另外設定一個 settings 值去比對,
+    內容判斷本身已經是既有、零設定升級不會壞掉的路徑。"""
     if fields.get("type") in ("TRAFFIC", "THREAT"):
         return SOURCE_TYPE_PAN410
+    hostname = _extract_syslog_hostname(raw_line)
     if (
-        settings.synology_nas_syslog_source_ip
-        and source_ip == settings.synology_nas_syslog_source_ip
+        hostname
+        and settings.synology_nas_syslog_hostname
+        and hostname == settings.synology_nas_syslog_hostname
     ):
         return SOURCE_TYPE_SYNOLOGY_NAS
     return SOURCE_TYPE_OTHER
@@ -188,7 +205,7 @@ def _make_synology_analyzer() -> SynologyLogAnalyzer:
         file_op_threshold=settings.synology_file_op_threshold,
         file_op_window=timedelta(seconds=settings.synology_file_op_window_seconds),
         state_ttl=timedelta(seconds=settings.synology_state_ttl_seconds),
-        nas_host=settings.synology_nas_syslog_source_ip,
+        nas_host=settings.synology_nas_ip,
     )
 
 
@@ -205,11 +222,14 @@ def _run(
             # 收尾路徑,不用當錯誤處理。
             break
         try:
+            # 注意:在 Docker 部署下這個 source_ip 常常是 docker bridge 的
+            # gateway IP,不是真正的外部發送端(見模組開頭的說明)——只當
+            # 除錯用的輔助資訊存進 syslog_messages,不能拿來判斷來源。
             source_ip = addr[0]
             line = data.decode("utf-8", errors="replace")
             fields = parse_line(line)
             now = datetime.now(UTC)
-            source_type = classify_source(source_ip, fields)
+            source_type = classify_source(line, fields)
 
             persist_raw_message(source_ip, source_type, line, now)
 

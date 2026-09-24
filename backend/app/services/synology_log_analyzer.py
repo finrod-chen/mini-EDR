@@ -70,10 +70,12 @@ class SynologyLogAnalyzer:
         self._file_op_window = file_op_window
         self._state_ttl = state_ttl
         # 檔案操作的 alert 沒有可以從 log 行本身解析出來的「攻擊來源」,
-        # host 固定填 NAS 自己的位址(見 syslog_listener.py 的
-        # classify_source() 用的同一個設定值)——不是發明一個獨立欄位,
-        # 純粹是這個分析器唯一需要知道的「自己是誰」,注入而非讀
-        # app.core.config,維持這個 class 零 I/O、零 settings 耦合。
+        # host 固定填 NAS 自己的 IP(見 app/core/config.py 的
+        # synology_nas_ip——注意這跟 syslog_listener.py 的
+        # classify_source() 判斷來源用的 synology_nas_syslog_hostname 是
+        # 兩個不同的設定值,一個是拿來認「這行是不是 NAS 送的」,一個是
+        # 「alert 要顯示成哪個 IP」)。注入而非讀 app.core.config,維持這個
+        # class 零 I/O、零 settings 耦合。
         self._nas_host = nas_host
         self._login_failures: dict[str, _KeyState] = {}  # key = 攻擊來源 IP
         self._file_ops: dict[str, _KeyState] = {}  # key = DSM 使用者帳號

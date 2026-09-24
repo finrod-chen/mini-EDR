@@ -34,15 +34,24 @@ log type),但目前**沒有**針對 System log 寫對應的即時偵測規則,�
    「大量刪除/搬移檔案」,需要另外對個別共用資料夾開啟檔案存取記錄
    ——這個記錄預設全部關閉,而且開了之後每個檔案操作都會送一行,建議
    先只對真的重要/敏感的資料夾開。
-3. 後端 `.env` 補上一行,值填 NAS 自己的 LAN IP(跟步驟 1 同一個):
+3. 後端 `.env` 補上兩行:
    ```
-   SYNOLOGY_NAS_SYSLOG_SOURCE_IP=192.168.2.185
+   SYNOLOGY_NAS_SYSLOG_HOSTNAME=Xiyue-NAS
+   SYNOLOGY_NAS_IP=192.168.2.185
    ```
-   這個設定是拿來判斷「這行 syslog 是不是 NAS 自己送的」(見
-   `syslog_listener.py` 的 `classify_source()`)——PA-410 是靠內容判斷
-   (`type="TRAFFIC"`/`type="THREAT"`),Synology 的內容格式完全不是
-   key=value,只能靠來源 IP 認。沒填這個值的話,NAS 送來的內容一律歸類
-   `other`,只會存原始 log、不會跑登入失敗/暴力破解/大量刪除搬移的分析。
+   `SYNOLOGY_NAS_SYSLOG_HOSTNAME` 填這台 NAS 在
+   **控制台 → 網路 → 一般** 設定的伺服器名稱,是拿來判斷「這行 syslog
+   是不是 NAS 自己送的」(見 `syslog_listener.py` 的
+   `classify_source()`)。**原本設計是比對來源 IP,但實機測試發現
+   Docker 會把進來的封包來源位址重寫成 docker bridge 的 gateway IP(不
+   管哪個外部裝置送的,container 看到的來源 IP 全部一樣),完全不可靠
+   ——改成比對 syslog 信封裡帶的主機名稱**,不受 Docker NAT 影響。沒填
+   這個值的話,NAS 送來的內容一律歸類 `other`,只會存原始 log、不會跑
+   登入失敗/暴力破解/大量刪除搬移的分析。
+
+   `SYNOLOGY_NAS_IP` 填 NAS 自己的 LAN IP,單純是給「大量刪除/搬移
+   檔案」這個 alert 的 `host` 欄位用(資產清單裡已有這筆資產,畫面上
+   會自動顯示成對應的主機名),跟上面的來源判斷是兩件事。
 4. `docker compose up -d --build backend` + `docker compose run --rm
    backend uv run alembic upgrade head`(新的 `syslog_messages` 表要跑
    migration 才會建出來)。
@@ -63,8 +72,17 @@ alert(見 `AlertSuppression`),不用急著改門檻。
 
 ### 排查:NAS 打自己對外發布的 port 不通
 
-如果照上面設定完,「Syslog 記錄」頁面完全看不到 `source_type` 是
-`synology_nas` 的資料,先排除「還沒做前置設定」之後,可以查一下 DSM
-自己的防火牆設定有沒有擋到 NAS 對自己(經過 Docker 對外發布的 port)
-這個路徑——有些環境對「NAS 打自己對外發布的 port」這種 hairpin 路徑
-處理不太一致,不像單純的 LAN-to-LAN 那麼保證一定通。
+如果照上面設定完,「Syslog 記錄」頁面完全看不到任何資料進來(連
+`source_type=other` 都沒有),先排除「還沒做前置設定」之後,可以查一下
+DSM 自己的防火牆設定有沒有擋到 NAS 對自己(經過 Docker 對外發布的
+port)這個路徑——有些環境對「NAS 打自己對外發布的 port」這種 hairpin
+路徑處理不太一致,不像單純的 LAN-to-LAN 那麼保證一定通。
+
+### 已知現象:`source_ip` 欄位不是真正的發送端 IP
+
+「Syslog 記錄」頁面/`syslog_messages` 表裡的 `source_ip` 欄位,實機測試
+下來不管 PA-410 還是 Synology NAS 送的,看到的都是同一個 docker bridge
+的 gateway IP(例如 `172.29.0.1`),不是 `192.168.2.200`/`192.168.2.185`
+這種實際的發送端 IP——這是 Docker 的 NAT 行為,不是設定錯誤,**這個
+欄位純粹是除錯輔助資訊,不會拿來判斷來源**(見上面 `classify_source()`
+的說明,判斷來源是看 syslog 信封裡帶的主機名稱,不是這個欄位)。

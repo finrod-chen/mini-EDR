@@ -102,11 +102,19 @@ class Settings(BaseSettings):
     syslog_state_ttl_seconds: int = 300
 
     # Synology NAS 送過來的 syslog 判斷來源用(見 syslog_listener.py 的
-    # classify_source())。PA-410 是靠內容判斷(type="TRAFFIC"/"THREAT"),
-    # Synology 的內容格式完全不是 key=value,只能靠來源 IP 認——空字串 =
+    # classify_source())。原本想比對 UDP 封包的來源 IP,但實機測試發現
+    # docker 會把進來的封包來源位址重寫成 docker bridge 的 gateway IP(不
+    # 管哪個外部裝置送的,container 看到的 source_ip 全部一樣),這個判斷
+    # 方式完全不可靠——改成比對 syslog 信封裡帶的主機名稱(DSM 自己在
+    # BSD syslog 開頭固定會帶,例如 `<14>Sep 24 09:07:49 Xiyue-NAS
+    # Connection: ...` 裡的 `Xiyue-NAS`,不受 Docker NAT 影響)。空字串 =
     # 不比對,送進來的非 PA-410 內容一律歸類 other(只存原始 log,不跑
-    # 分析)。
-    synology_nas_syslog_source_ip: str = ""
+    # 分析)。填這台 NAS 在 控制台 → 網路 → 一般 設定的伺服器名稱。
+    synology_nas_syslog_hostname: str = ""
+    # 大量刪除/搬移檔案的 alert host 用這個(不是拿來判斷來源,見上面
+    # synology_nas_syslog_hostname)——填這台 NAS 的 IP,資產清單裡已有
+    # 這筆資產,alert 畫面上的 IP→資產名稱對照會自動顯示成對應的主機名。
+    synology_nas_ip: str = ""
     # 登入失敗次數異常(疑似暴力破解)的門檻/視窗。
     synology_login_failure_threshold: int = 5
     synology_login_failure_window_seconds: int = 300

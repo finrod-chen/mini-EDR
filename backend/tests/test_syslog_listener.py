@@ -136,27 +136,45 @@ def test_handle_fields_high_severity_threat_uses_high_severity_rule_name(monkeyp
     assert alert.severity == "Critical"
 
 
+_SYNOLOGY_LINE = "<14>Sep 24 09:07:49 Xiyue-NAS Connection: User [admin] logged in successfully."
+_PAN410_ENVELOPE = '<14>Jan  1 12:00:00 PA-410 type="TRAFFIC" subtype="end"'
+
+
 def test_classify_source_by_pan410_content(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(settings, "synology_nas_syslog_source_ip", "192.168.2.185")
-    assert classify_source("10.0.0.1", {"type": "TRAFFIC"}) == SOURCE_TYPE_PAN410
-    assert classify_source("10.0.0.1", {"type": "THREAT"}) == SOURCE_TYPE_PAN410
+    monkeypatch.setattr(settings, "synology_nas_syslog_hostname", "Xiyue-NAS")
+    assert classify_source(_PAN410_ENVELOPE, {"type": "TRAFFIC"}) == SOURCE_TYPE_PAN410
+    assert classify_source(_PAN410_ENVELOPE, {"type": "THREAT"}) == SOURCE_TYPE_PAN410
 
 
-def test_classify_source_by_synology_ip(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(settings, "synology_nas_syslog_source_ip", "192.168.2.185")
-    assert classify_source("192.168.2.185", {}) == SOURCE_TYPE_SYNOLOGY_NAS
+def test_classify_source_by_synology_hostname(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # 靠 syslog 信封裡的主機名稱判斷,不是 UDP 來源 IP——實機測試發現
+    # Docker 會把進來的封包來源位址重寫成 bridge gateway IP,不管哪個
+    # 外部裝置送的都長一樣,IP 沒辦法拿來判斷來源(見
+    # syslog_listener.py 模組開頭的說明)。
+    monkeypatch.setattr(settings, "synology_nas_syslog_hostname", "Xiyue-NAS")
+    assert classify_source(_SYNOLOGY_LINE, {}) == SOURCE_TYPE_SYNOLOGY_NAS
 
 
-def test_classify_source_unmatched_is_other(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(settings, "synology_nas_syslog_source_ip", "192.168.2.185")
-    assert classify_source("10.0.0.99", {}) == SOURCE_TYPE_OTHER
+def test_classify_source_unmatched_hostname_is_other(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(settings, "synology_nas_syslog_hostname", "Xiyue-NAS")
+    other_line = (
+        "<14>Sep 24 09:07:49 Some-Other-Host Connection: User [admin] logged in successfully."
+    )
+    assert classify_source(other_line, {}) == SOURCE_TYPE_OTHER
 
 
-def test_classify_source_synology_ip_unset_falls_back_to_other(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    # 空字串 = 不比對(見 settings.synology_nas_syslog_source_ip 預設值),
+def test_classify_source_synology_hostname_unset_falls_back_to_other(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # 空字串 = 不比對(見 settings.synology_nas_syslog_hostname 預設值),
     # 沒設定的話任何非 PA-410 內容都歸 other,不會誤判成 synology_nas。
-    monkeypatch.setattr(settings, "synology_nas_syslog_source_ip", "")
-    assert classify_source("192.168.2.185", {}) == SOURCE_TYPE_OTHER
+    monkeypatch.setattr(settings, "synology_nas_syslog_hostname", "")
+    assert classify_source(_SYNOLOGY_LINE, {}) == SOURCE_TYPE_OTHER
+
+
+def test_classify_source_envelope_without_hostname_is_other(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # 不符合 BSD syslog 信封格式的畸形行,_extract_syslog_hostname 抓不到
+    # 主機名稱,一樣安全地歸類 other,不該拋例外。
+    monkeypatch.setattr(settings, "synology_nas_syslog_hostname", "Xiyue-NAS")
+    assert classify_source("not a valid syslog line", {}) == SOURCE_TYPE_OTHER
 
 
 def test_persist_raw_message_writes_every_line(monkeypatch) -> None:  # type: ignore[no-untyped-def]

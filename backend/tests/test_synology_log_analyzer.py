@@ -10,8 +10,13 @@ from app.services.synology_log_analyzer import (
 _BASE = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 _NAS_HOST = "192.168.2.185"
 
-_FAILED_LOGIN = "User [admin] failed to log in via [DSM] from [1.2.3.4] using [password]."
-_SUCCESS_LOGIN = "User [admin] logged in successfully via [DSM] from [1.2.3.4]."
+# 照 DSM 記錄查看器裡的真實輸出格式(見 synology_log_analyzer.py 模組
+# 開頭的說明,不是憑印象猜的)。
+_FAILED_LOGIN = (
+    "User [admin] from [1.2.3.4] failed to sign in to [DSM] via [password] "
+    "due to authorization failure."
+)
+_SUCCESS_LOGIN = "User [admin] from [1.2.3.4] signed in to [DSM] successfully via [password]."
 
 
 def make_analyzer(

@@ -197,7 +197,10 @@ def test_handle_synology_line_creates_alert_on_failure_burst(monkeypatch) -> Non
     test_session = make_session()
     monkeypatch.setattr(listener_module, "SessionLocal", lambda: test_session)
 
-    line = "User [admin] failed to log in via [DSM] from [1.2.3.4] using [password]."
+    line = (
+        "User [admin] from [1.2.3.4] failed to sign in to [DSM] via [password] "
+        "due to authorization failure."
+    )
     for i in range(3):
         handle_synology_line(analyzer, line, _BASE + timedelta(seconds=i))
 

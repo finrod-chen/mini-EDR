@@ -4,13 +4,21 @@
 一律由呼叫端傳入,方便單元測試;真正的收發跟寫 alert 在
 app/services/syslog_listener.py。
 
-登入失敗/成功的 regex 抓的是 DSM Connection log 公開文件、社群(含
-fail2ban 的 Synology filter)廣泛驗證過的固定句型,例如:
+登入失敗/成功的 regex 原本照公開文件、社群(含 fail2ban 的 Synology
+filter)常見的句型猜(`failed to log in via [DSM] from [IP]`),部署後
+拿 DSM 記錄查看器(控制台 → 記錄中心 → 記錄查看器)裡的真實記錄核對
+發現措辭不一樣——是「sign in」不是「log in」,IP 的位置也不同,例如:
 
-    User [admin] failed to log in via [DSM] from [1.2.3.4] using [password].
-    User [admin] logged in successfully via [DSM] from [1.2.3.4].
+    User [G60010] from [192.168.2.156] failed to sign in to [DSM] via
+    [password] due to authorization failure.
+    User [G60010] from [192.168.2.156] signed in to [DSM] successfully
+    via [password].
 
-但沒有拿使用者實機的真實輸出驗證過。
+已經改成照這個真實格式寫。**這兩筆記錄 DSM 本地端有記到,但目前還沒
+在 syslog_messages 裡看到對應的資料**(檔案操作、SMB 存取共用資料夾都
+正常送到,同樣勾選在「連線」類別底下的登入事件卻沒有)——懷疑是 DSM
+對「連線」類別的 syslog 轉發規則,入口網站登入跟檔案協定連線是分開
+處理的,登入事件可能沒有真的被轉發,這點還沒有定論,見 deploy 文件。
 
 檔案操作的 regex 原本也是照公開文件猜的 File Station 格式
 (`User [x] deleted file/folder [...]`),部署後拿實機真實輸出核對發現
@@ -37,8 +45,8 @@ RULE_NAME_LOGIN_FAILURE = "Synology NAS 登入失敗次數異常(疑似暴力破
 RULE_NAME_MALICIOUS_LOGIN = "Synology NAS 疑似暴力破解成功登入"
 RULE_NAME_FILE_OP_BURST = "Synology NAS 大量刪除/搬移檔案"
 
-_FAILED_LOGIN_RE = re.compile(r"failed to log in via \[(\w+)\] from \[([\d.]+)\]")
-_SUCCESS_LOGIN_RE = re.compile(r"logged in successfully via \[(\w+)\] from \[([\d.]+)\]")
+_FAILED_LOGIN_RE = re.compile(r"from \[([\d.]+)\] failed to sign in to \[\w+\]")
+_SUCCESS_LOGIN_RE = re.compile(r"from \[([\d.]+)\] signed in to \[\w+\] successfully")
 # 只認「delete/move」這兩個動作,不含「create/read/rename」——這次要抓的
 # 是使用者明確點名的風險情境(資料被清空/搬走),不是泛用的檔案異動監控
 # (rename 通常是改檔名,不是搬移到別的資料夾,實機日誌裡兩者是分開的
@@ -140,7 +148,7 @@ class SynologyLogAnalyzer:
 
         success_match = _SUCCESS_LOGIN_RE.search(raw_line)
         if success_match:
-            attacker_ip = success_match.group(2)
+            attacker_ip = success_match.group(1)
             failure_count = self._recent_failure_count(attacker_ip, now)
             if failure_count >= self._malicious_login_recent_failures:
                 # 這波攻擊已經有結果了(成功登入),清空失敗計數,避免
@@ -162,7 +170,7 @@ class SynologyLogAnalyzer:
 
         failed_match = _FAILED_LOGIN_RE.search(raw_line)
         if failed_match:
-            attacker_ip = failed_match.group(2)
+            attacker_ip = failed_match.group(1)
             count = self._count_in_window(
                 self._login_failures, attacker_ip, self._login_failure_window, now
             )
